@@ -1,7 +1,7 @@
 import express from 'express';
 import adminRouter from './admin';
 import salesRepRouter from './sales-rep';
-import { auth, adminAuth, salesAuth } from '../../middlewares/index';
+import { auth, adminAuth, salesAuth } from '../middlewares/index';
 
 const router = express.Router();
 

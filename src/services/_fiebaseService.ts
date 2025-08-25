@@ -15,14 +15,14 @@ const firebaseAdmin = admin.initializeApp({
     auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
     client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
     universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
-  }),
+  } as admin.ServiceAccount),
 });
 
-function listAllFirebaseUsers() {
+function listAllFirebaseUsers(): Promise<any[]> {
   return new Promise((resolve, reject) => {
-    let allUsers = [];
+    let allUsers: any[] = [];
 
-    function listUsersRecursively(pageToken) {
+    function listUsersRecursively(pageToken?: string) {
       firebaseAdmin
         .auth()
         .listUsers(1000, pageToken)
@@ -44,7 +44,7 @@ function listAllFirebaseUsers() {
   });
 }
 
-async function isEmailInFirebase(email) {
+async function isEmailInFirebase(email: string): Promise<boolean> {
   try {
     const firebaseUser = await firebaseAdmin.auth().getUserByEmail(email);
     if (firebaseUser?.uid) {
@@ -56,7 +56,7 @@ async function isEmailInFirebase(email) {
   }
 }
 
-async function isUidInFirebase(uid) {
+async function isUidInFirebase(uid: string): Promise<boolean> {
   try {
     const userRecord = await firebaseAdmin.auth().getUser(uid);
     if (userRecord) {
@@ -69,4 +69,4 @@ async function isUidInFirebase(uid) {
 }
 
 export { listAllFirebaseUsers, isEmailInFirebase, isUidInFirebase };
-export default firebaseAdmin;
+export default firebaseAdmin; 

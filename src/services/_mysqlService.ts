@@ -7,10 +7,10 @@ const pool = mysql.createPool({
   user: process.env.MYSQLUSER,
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
-  port: process.env.MYSQLPORT,
+  port: process.env.MYSQLPORT ? parseInt(process.env.MYSQLPORT) : 3306,
   timezone: '+00:00',
 });
 
 const mysqlPool = pool.promise();
 
-export default mysqlPool;
+export default mysqlPool; 
