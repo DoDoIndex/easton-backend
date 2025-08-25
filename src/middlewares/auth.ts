@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
-import firebaseAdmin from '../services/_fiebaseService.js';
-import mysqlPool from '../services/_mysqlService.js';
-import { unauthorized } from '../utils/index.js';
+import firebaseAdmin from '../services/_fiebaseService';
+import mysqlPool from '../services/_mysqlService';
+import { unauthorized } from '../utils/index';
 
 interface AuthenticatedRequest extends Request {
   userRecord?: any;
@@ -48,14 +48,14 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
 
     const data = await Promise.all(promises);
 
-    const [agentRows] = data[0];
-    const [adminRows] = data[1];
+    const [agentRows] = data[0] as [any[], any];
+    const [adminRows] = data[1] as [any[], any];
 
     const roles: string[] = [];
-    if (agentRows?.length) {
+    if (Array.isArray(agentRows) && agentRows.length > 0) {
       roles.push('sales_rep');
     }
-    if (adminRows?.length) {
+    if (Array.isArray(adminRows) && adminRows.length > 0) {
       roles.push('admin');
     }
 
