@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import routes from './routes';
 
 export const app = express();
 
@@ -19,6 +20,9 @@ const api = express.Router();
 api.get('/hello', (req, res) => {
   res.status(200).send({ message: 'hello world' });
 });
+
+// Mount all routes
+api.use('/', routes);
 
 // Version the api
 app.use('/api/v1', api);
