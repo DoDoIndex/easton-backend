@@ -53,8 +53,12 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     }
 
     // Get the sales rep's name to filter leads
+    const salesRepQuery = "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1";
+    console.log('Sales rep query:', salesRepQuery);
+    console.log('Sales rep query params:', [uid]);
+    
     const [salesRepRows] = await mysqlPool.query(
-      "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1",
+      salesRepQuery,
       [uid]
     ) as [any[], any];
 
@@ -66,8 +70,12 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     // First, let's get the basic leads to see what we're working with
     console.log('Sales rep UID:', uid);
     
+    const basicLeadsQuery = "SELECT * FROM leads WHERE sales_rep = ? ORDER BY lead_id DESC";
+    console.log('Basic leads query:', basicLeadsQuery);
+    console.log('Basic leads query params:', [uid]);
+    
     const [basicLeads] = await mysqlPool.query(
-      "SELECT * FROM leads WHERE sales_rep = ? ORDER BY lead_id DESC",
+      basicLeadsQuery,
       [uid]
     ) as [any[], any];
     
@@ -75,8 +83,7 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     console.log('Sample lead:', basicLeads[0]);
     
     // Get all leads assigned to this sales rep with touch point count and last touched timestamp
-    const [leads] = await mysqlPool.query(
-      `SELECT 
+    const complexQuery = `SELECT 
         l.*,
         COALESCE(tp_count.touch_point_count, 0) as touch_point_count,
         tp_last.last_touched
@@ -94,7 +101,13 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
          GROUP BY lead_id
        ) tp_last ON l.lead_id = tp_last.lead_id
        WHERE l.sales_rep = ? 
-       ORDER BY l.lead_id DESC`,
+       ORDER BY l.lead_id DESC`;
+    
+    console.log('Complex query:', complexQuery);
+    console.log('Complex query params:', [uid]);
+    
+    const [leads] = await mysqlPool.query(
+      complexQuery,
       [uid]
     ) as [any[], any];
     
@@ -107,6 +120,52 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     });
   } catch (error) {
     console.error('Error fetching leads:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /sales-rep/leads/:leadId - Get specific lead by ID
+salesRepRouter.get('/leads/:leadId', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    const uid = req.userRecord?.uid;
+    const { leadId } = req.params;
+
+    console.log('Sales rep UID:', uid);
+    console.log('Lead ID:', leadId);
+    
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
+
+    // Get the specific lead with touch point count and last touched timestamp
+    const query = `SELECT * FROM leads WHERE lead_id = ? AND sales_rep = ?`;
+    
+    const flatQuery = query.replace('?', leadId).replace('?', uid);
+    
+    console.log('Query with placeholders:', query);
+    console.log('Flat query:', flatQuery);
+    console.log('Query params:', [leadId, uid]);
+    
+    const [leads] = await mysqlPool.query(
+      query,
+      [leadId, uid]
+    ) as [any[], any];
+    
+    console.log('Leads found:', leads);
+
+    if (leads.length === 0) {
+      res.status(404).json({ error: 'Lead not found or access denied' });
+      return;
+    }
+
+    const lead = leads[0];
+    res.status(200).json({
+      message: 'Lead retrieved successfully',
+      data: lead
+    });
+  } catch (error) {
+    console.error('Error fetching lead:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -201,9 +260,15 @@ salesRepRouter.get('/leads/:leadId/touch-points', async (req: AuthenticatedReque
       return;
     }
 
-    // Get touch points for this lead
+    // Get touch points for this lead with sales rep names
     const [touchPoints] = await mysqlPool.query(
-      "SELECT * FROM touch_points WHERE lead_id = ? AND is_active = 1 ORDER BY created_at DESC",
+      `SELECT 
+        tp.*,
+        sr.name as contact_name
+       FROM touch_points tp
+       LEFT JOIN sales_rep sr ON tp.uid = sr.uid AND sr.is_active = 1
+       WHERE tp.lead_id = ? AND tp.is_active = 1 
+       ORDER BY tp.created_at DESC`,
       [leadId]
     ) as [any[], any];
 
@@ -236,9 +301,9 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
     }
 
     // Validate contact_method enum values
-    const validContactMethods = ['Phone', 'Email', 'Text Message'];
+    const validContactMethods = ['Phone Call', 'Email', 'Text Message'];
     if (!validContactMethods.includes(contact_method)) {
-      res.status(400).json({ error: 'Contact method must be one of: Phone, Email, Text Message' });
+      res.status(400).json({ error: 'Contact method must be one of: Phone Call, Email, Text Message' });
       return;
     }
 
@@ -253,22 +318,24 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
       return;
     }
 
+    // Generate a unique touch_id using UUID
+    const touchId = `tp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     // Insert the new touch point
     await mysqlPool.query(
-      `INSERT INTO touch_points (uid, lead_id, contact_method, description, created_at, is_active) 
-       VALUES (?, ?, ?, ?, NOW(), 1)`,
-      [uid, leadId, contact_method, description]
+      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description) 
+       VALUES (?, ?, ?, ?, ?)`,
+      [touchId, uid, leadId, contact_method, description]
     );
 
     res.status(201).json({
       message: 'Touch point created successfully',
       data: {
+        touch_id: touchId,
         uid,
         lead_id: leadId,
         contact_method,
-        description,
-        created_at: new Date(),
-        is_active: true
+        description
       }
     });
   } catch (error) {
