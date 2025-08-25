@@ -12,8 +12,9 @@
     "noUnusedLocals": true,
     "noImplicitAny": false,
     "sourceMap": true,
-    "lib": ["ESNext"],
-    "strictNullChecks": false
+
+    "strictNullChecks": false,
+    "types": []
   },
   "compileOnSave": true,
   "include": ["src/**/*"]

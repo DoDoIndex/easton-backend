@@ -4,6 +4,9 @@
   "main": "index.js",
   "license": "MIT",
   "author": "Matt Spear",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "nodemon src/index.ts",
     "build": "tsc",
