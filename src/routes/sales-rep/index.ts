@@ -287,7 +287,7 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
   try {
     const uid = req.userRecord?.uid;
     const { leadId } = req.params;
-    const { contact_method, description } = req.body;
+    const { contact_method, description, status, follow_up_date } = req.body;
     
     if (!uid) {
       res.status(401).json({ error: 'User not authenticated' });
@@ -318,14 +318,58 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
       return;
     }
 
+    const currentLead = leadRows[0];
+    let systemNote = '';
+    let statusUpdated = false;
+    let finalFollowUpDate = null;
+
+    console.log('status:', status);
+    console.log('Current lead status:', currentLead.status);
+
+    // Handle status update if provided
+    if (status && status !== currentLead.status) {
+      statusUpdated = true;
+      
+      // Update the lead status
+      await mysqlPool.query(
+        "UPDATE leads SET status = ? WHERE lead_id = ?",
+        [status, leadId]
+      );
+
+      // Handle follow_up_date based on status
+      if (status === "Follow-up") {
+        let finalFollowUpDate = follow_up_date;
+        
+        if (!follow_up_date) {
+          // Set follow-up date to 1 week from now if not provided
+          const oneWeekFromNow = new Date();
+          oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7);
+          finalFollowUpDate = oneWeekFromNow.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+        }
+        
+        await mysqlPool.query(
+          "UPDATE leads SET follow_up_date = ? WHERE lead_id = ?",
+          [finalFollowUpDate, leadId]
+        );
+        systemNote = `Follow-up on ${finalFollowUpDate}.`;
+      } else {
+        // Clear follow_up_date for non-follow-up statuses
+        await mysqlPool.query(
+          "UPDATE leads SET follow_up_date = NULL WHERE lead_id = ?",
+          [leadId]
+        );
+        systemNote = `Change status to ${status}.`;
+      }
+    }
+
     // Generate a unique touch_id using UUID
     const touchId = `tp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Insert the new touch point
     await mysqlPool.query(
-      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description) 
-       VALUES (?, ?, ?, ?, ?)`,
-      [touchId, uid, leadId, contact_method, description]
+      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description, system_note) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [touchId, uid, leadId, contact_method, description, systemNote]
     );
 
     res.status(201).json({
@@ -335,7 +379,10 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
         uid,
         lead_id: leadId,
         contact_method,
-        description
+        description: systemNote,
+        status_updated: statusUpdated,
+        new_status: status || currentLead.status,
+        follow_up_date: finalFollowUpDate
       }
     });
   } catch (error) {
