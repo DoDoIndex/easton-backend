@@ -25,7 +25,15 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
 
   let uid: string | null = null;
 
-  // Verify token
+  // Check if this is an admin API key
+  if (token === process.env.ADMIN_API_KEY) {
+    console.log('Admin API key detected', token);
+    req.userRecord = { uid: 'admin_api_key' };
+    req.userRole = ['admin'];
+    return next();
+  }
+
+  // Verify Firebase token
   try {
     const decodedToken = await firebaseAdmin.auth().verifyIdToken(token);
     uid = decodedToken?.uid;
@@ -36,7 +44,7 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
 
   // Check if uid is null
   if (!uid) {
-    unauthorized(res, `Unable to get uid from token ${token}`);
+    unauthorized(res, `Unable to get uid from token ${uid}`);
     return;
   }
 

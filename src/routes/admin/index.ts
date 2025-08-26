@@ -1,60 +1,315 @@
 import express from 'express';
+import mysqlPool from '../../services/_mysqlService';
+
+interface AuthenticatedRequest extends express.Request {
+  userRecord?: any;
+  userRole?: string[];
+}
 
 const adminRouter = express.Router();
 
-// GET /admin/leads - Get all leads
-adminRouter.get('/leads', (req, res) => {
-  // TODO: Implement admin leads retrieval logic
-  res.status(200).send({ message: 'Admin: Get all leads' });
+// GET /admin/leads - Get all leads with pagination and filtering
+adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    // Parse pagination parameters
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 1000);
+    const offset = (page - 1) * limit;
+
+    // Parse filter parameters
+    const status = req.query.status as string;
+    const salesRep = req.query.sales_rep as string;
+    const projectInterest = req.query.project_interest as string;
+    const budget = req.query.budget as string;
+    const financeNeed = req.query.finance_need as string;
+    const search = req.query.search as string;
+
+    // Build WHERE clause for filters
+    let whereConditions = [];
+    let queryParams = [];
+
+    if (status) {
+      whereConditions.push('l.status = ?');
+      queryParams.push(status);
+    }
+
+    if (salesRep) {
+      whereConditions.push('l.sales_rep = ?');
+      queryParams.push(salesRep);
+    }
+
+    if (projectInterest) {
+      whereConditions.push('l.project_interest = ?');
+      queryParams.push(projectInterest);
+    }
+
+    if (budget) {
+      whereConditions.push('l.budget = ?');
+      queryParams.push(budget);
+    }
+
+    if (financeNeed) {
+      whereConditions.push('l.finance_need = ?');
+      queryParams.push(financeNeed);
+    }
+
+    if (search) {
+      whereConditions.push('(l.name LIKE ? OR l.email LIKE ? OR l.phone LIKE ?)');
+      const searchPattern = `%${search}%`;
+      queryParams.push(searchPattern, searchPattern, searchPattern);
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+    // Get total count for pagination
+    const countQuery = `SELECT COUNT(*) as total FROM leads l ${whereClause}`;
+    const [countResult] = await mysqlPool.query(countQuery, queryParams) as [any[], any];
+    const totalLeads = countResult[0].total;
+
+    // Get leads with touch point count and last touched timestamp
+    const leadsQuery = `
+      SELECT 
+        l.*,
+        COALESCE(tp_count.touch_point_count, 0) as touch_point_count,
+        tp_last.last_touched
+       FROM leads l
+       LEFT JOIN (
+         SELECT lead_id, COUNT(*) as touch_point_count
+         FROM touch_points 
+         WHERE is_active = 1 
+         GROUP BY lead_id
+       ) tp_count ON l.lead_id = tp_count.lead_id
+       LEFT JOIN (
+         SELECT lead_id, MAX(created_at) as last_touched
+         FROM touch_points 
+         WHERE is_active = 1 
+         GROUP BY lead_id
+       ) tp_last ON l.lead_id = tp_last.lead_id
+       ${whereClause}
+       ORDER BY l.created_at DESC
+       LIMIT ? OFFSET ?`;
+
+    const [leads] = await mysqlPool.query(leadsQuery, [...queryParams, limit, offset]) as [any[], any];
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalLeads / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
+    res.status(200).json({
+      message: 'Leads retrieved successfully',
+      data: leads,
+      pagination: {
+        current_page: page,
+        total_pages: totalPages,
+        total_leads: totalLeads,
+        limit: limit,
+        has_next_page: hasNextPage,
+        has_prev_page: hasPrevPage,
+        next_page: hasNextPage ? page + 1 : null,
+        prev_page: hasPrevPage ? page - 1 : null
+      },
+      filters: {
+        status,
+        sales_rep: salesRep,
+        project_interest: projectInterest,
+        budget,
+        finance_need: financeNeed,
+        search
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching admin leads:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // POST /admin/leads - Create new lead
-adminRouter.post('/leads', (req, res) => {
-  // TODO: Implement admin lead creation logic
-  res.status(201).send({ message: 'Admin: Create new lead', data: req.body });
-});
-
-// GET /admin/leads/:lead-id/touch-points - Get touch points for specific lead
-adminRouter.get('/leads/:leadId/touch-points', (req, res) => {
-  const { leadId } = req.params;
-  // TODO: Implement admin touch points retrieval logic
-  res.status(200).send({ message: `Admin: Get touch points for lead ${leadId}` });
-});
-
-// POST /admin/leads/:leadId/assign - Assign lead to sales rep
-adminRouter.post('/leads/:leadId/assign', (req, res) => {
-  const { leadId } = req.params;
-  const { salesRepId } = req.body;
-  
-  res.status(201).json({
-    message: 'Lead assignment request received',
-    data: {
-      leadId,
-      salesRepId
+// GET /admin/leads/:leadId/touch-points - Get touch points for specific lead
+adminRouter.get('/leads/:leadId/touch-points', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
     }
-  });
-});
 
-// POST /admin/leads/:leadId/status - Change lead status
-adminRouter.post('/leads/:leadId/status', (req, res) => {
-  const { leadId } = req.params;
-  const { status } = req.body;
-  
-  // Validate status
-  const validStatuses = ['active', 'close', 'need-reminder', 'dead'];
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({
-      error: 'Invalid status. Must be one of: active, close, need-reminder, dead'
+    const { leadId } = req.params;
+
+    // Check if lead exists
+    const [leadRows] = await mysqlPool.query(
+      "SELECT lead_id FROM leads WHERE lead_id = ?",
+      [leadId]
+    ) as [any[], any];
+
+    if (leadRows.length === 0) {
+      res.status(404).json({ error: 'Lead not found' });
+      return;
+    }
+
+    // Get touch points for this lead with sales rep names
+    const [touchPoints] = await mysqlPool.query(
+      `SELECT 
+        tp.*,
+        sr.name as contact_name
+       FROM touch_points tp
+       LEFT JOIN sales_rep sr ON tp.uid = sr.uid AND sr.is_active = 1
+       WHERE tp.lead_id = ? AND tp.is_active = 1 
+       ORDER BY tp.created_at DESC`,
+      [leadId]
+    ) as [any[], any];
+
+    res.status(200).json({
+      message: 'Touch points retrieved successfully',
+      data: touchPoints
     });
+  } catch (error) {
+    console.error('Error fetching admin touch points:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  
-  return res.status(201).json({
-    message: 'Lead status change request received',
-    data: {
-      leadId,
-      status
+});
+
+
+
+// POST /admin/leads - Create new lead
+adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
     }
-  });
+
+    // Validate required fields
+    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need } = req.body;
+    
+    if (!lead_id) {
+      res.status(400).json({ error: 'Lead ID is required' });
+      return;
+    }
+
+    if (!name) {
+      res.status(400).json({ error: 'Name is required' });
+      return;
+    }
+
+    if (!sales_rep) {
+      res.status(400).json({ error: 'Sales rep is required' });
+      return;
+    }
+
+    // Validate finance_need if provided
+    if (finance_need && !['Yes', 'No'].includes(finance_need)) {
+      res.status(400).json({ error: 'Finance need must be either "Yes" or "No"' });
+      return;
+    }
+
+    // Check if lead_id already exists
+    const [existingLead] = await mysqlPool.query(
+      "SELECT lead_id FROM leads WHERE lead_id = ?",
+      [lead_id]
+    ) as [any[], any];
+
+    if (existingLead.length > 0) {
+      res.status(409).json({ error: 'Lead ID already exists' });
+      return;
+    }
+
+    // Insert the new lead
+    await mysqlPool.query(
+      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [lead_id, name, email || null, phone || null, project_interest || null, budget || null, 
+       click_source || null, website_source || null, ad_source || null, status || 'New', sales_rep, finance_need || null]
+    );
+
+    res.status(201).json({
+      message: 'Lead created successfully',
+      data: {
+        lead_id,
+        name,
+        email,
+        phone,
+        project_interest,
+        budget,
+        click_source,
+        website_source,
+        ad_source,
+        status: status || 'New',
+        sales_rep,
+        finance_need
+      }
+    });
+  } catch (error) {
+    console.error('Error creating admin lead:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /admin/leads/:id - Update existing lead
+adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { id } = req.params;
+    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need } = req.body;
+
+    // Validate finance_need if provided
+    if (finance_need && !['Yes', 'No'].includes(finance_need)) {
+      res.status(400).json({ error: 'Finance need must be either "Yes" or "No"' });
+      return;
+    }
+
+    // Check if lead exists
+    const [existingLead] = await mysqlPool.query(
+      "SELECT * FROM leads WHERE lead_id = ?",
+      [id]
+    ) as [any[], any];
+
+    if (existingLead.length === 0) {
+      res.status(404).json({ error: 'Lead not found' });
+      return;
+    }
+
+    // Update the lead
+    await mysqlPool.query(
+      `UPDATE leads SET 
+        name = ?, email = ?, phone = ?, project_interest = ?, budget = ?, 
+        click_source = ?, website_source = ?, ad_source = ?, status = ?, 
+        sales_rep = ?, finance_need = ?
+       WHERE lead_id = ?`,
+      [name || existingLead[0].name, email || existingLead[0].email, phone || existingLead[0].phone,
+       project_interest || existingLead[0].project_interest, budget || existingLead[0].budget,
+       click_source || existingLead[0].click_source, website_source || existingLead[0].website_source,
+       ad_source || existingLead[0].ad_source, status || existingLead[0].status,
+       sales_rep || existingLead[0].sales_rep, finance_need || existingLead[0].finance_need, id]
+    );
+
+    // Get updated lead
+    const [updatedLead] = await mysqlPool.query(
+      "SELECT * FROM leads WHERE lead_id = ?",
+      [id]
+    ) as [any[], any];
+
+    res.status(200).json({
+      message: 'Lead updated successfully',
+      data: updatedLead[0]
+    });
+  } catch (error) {
+    console.error('Error updating admin lead:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 export default adminRouter; 

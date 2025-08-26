@@ -101,7 +101,7 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
          GROUP BY lead_id
        ) tp_last ON l.lead_id = tp_last.lead_id
        WHERE l.sales_rep = ? 
-       ORDER BY l.lead_id DESC`;
+       ORDER BY l.created_at DESC`;
     
     console.log('Complex query:', complexQuery);
     console.log('Complex query params:', [uid]);
