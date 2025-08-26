@@ -9,15 +9,31 @@ interface AuthenticatedRequest extends Request {
 }
 
 const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization;
+  // console.log(req.headers);
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    unauthorized(res, 'No authorization header found.');
+    return;
+  }
+
+  // Extract token from "Bearer <token>" format - always strip "Bearer " if present
+  const token = authHeader.replace(/^Bearer\s+/i, '');
   if (!token) {
-    unauthorized(res, 'No token found.');
+    unauthorized(res, 'No token found in authorization header.');
     return;
   }
 
   let uid: string | null = null;
 
-  // Verify token
+  // Check if this is an admin API key
+  if (token === process.env.ADMIN_API_KEY) {
+    console.log('Admin API key detected', token);
+    req.userRecord = { uid: 'admin_api_key' };
+    req.userRole = ['admin'];
+    return next();
+  }
+
+  // Verify Firebase token
   try {
     const decodedToken = await firebaseAdmin.auth().verifyIdToken(token);
     uid = decodedToken?.uid;
@@ -28,7 +44,7 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
 
   // Check if uid is null
   if (!uid) {
-    unauthorized(res, `Unable to get uid from token ${token}`);
+    unauthorized(res, `Unable to get uid from token ${uid}`);
     return;
   }
 
@@ -41,12 +57,14 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
     }
     req.userRecord = userRecord;
 
-    const promises = [
-      mysqlPool.query("SELECT * FROM sales_rep WHERE uid = ? AND is_active='1'", [uid]),
-      mysqlPool.query("SELECT * FROM admin WHERE uid = ? AND is_active='1'", [uid]),
-    ];
-
-    const data = await Promise.all(promises);
+    let data: any[];
+    try {
+      const salesRepResult = await mysqlPool.query("SELECT * FROM sales_rep WHERE uid = ? AND is_active = 1", [uid]);
+      const adminResult = await mysqlPool.query("SELECT * FROM admin WHERE uid = ? AND is_active = 1", [uid]);
+      data = [salesRepResult, adminResult];
+    } catch (dbError) {
+      throw dbError;
+    }
 
     const [agentRows] = data[0] as [any[], any];
     const [adminRows] = data[1] as [any[], any];
