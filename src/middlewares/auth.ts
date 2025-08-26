@@ -16,8 +16,8 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
     return;
   }
 
-  // Extract token from "Bearer <token>" format
-  const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7) : authHeader;
+  // Extract token from "Bearer <token>" format - always strip "Bearer " if present
+  const token = authHeader.replace(/^Bearer\s+/i, '');
   if (!token) {
     unauthorized(res, 'No token found in authorization header.');
     return;
