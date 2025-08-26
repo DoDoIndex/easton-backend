@@ -17,9 +17,9 @@ salesRepRouter.get('/info', async (req: AuthenticatedRequest, res: express.Respo
       return;
     }
 
-    // Query the sales_rep table to get the name
+    // Query the sales_rep table to get all info
     const [rows] = await mysqlPool.query(
-      "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1",
+      "SELECT * FROM sales_rep WHERE uid = ? AND is_active = 1",
       [uid]
     ) as [any[], any];
 
@@ -31,10 +31,7 @@ salesRepRouter.get('/info', async (req: AuthenticatedRequest, res: express.Respo
     const salesRepInfo = rows[0];
     res.status(200).json({ 
       message: 'Sales rep info retrieved successfully',
-      data: {
-        name: salesRepInfo.name,
-        uid: uid
-      }
+      data: salesRepInfo
     });
   } catch (error) {
     console.error('Error fetching sales rep info:', error);
