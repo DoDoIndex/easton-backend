@@ -39,6 +39,89 @@ salesRepRouter.get('/info', async (req: AuthenticatedRequest, res: express.Respo
   }
 });
 
+
+// PUT /sales-rep/phone - Update sales rep phone number
+salesRepRouter.put('/phone', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    const uid = req.userRecord?.uid;
+    const { phone } = req.body;
+    
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
+
+    if (!phone) {
+      res.status(400).json({ error: 'Phone number is required' });
+      return;
+    }
+
+    // Update the sales rep's phone number
+    const [result] = await mysqlPool.query(
+      "UPDATE sales_rep SET phone = ? WHERE uid = ? AND is_active = 1",
+      [phone, uid]
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    res.status(200).json({
+      message: 'Phone number updated successfully',
+      data: { phone }
+    });
+  } catch (error) {
+    console.error('Error updating phone number:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /sales-rep/calendar-url - Update sales rep calendar URL
+salesRepRouter.put('/calendar-url', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    const uid = req.userRecord?.uid;
+    const { calendar_url } = req.body;
+    
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
+
+    if (!calendar_url) {
+      res.status(400).json({ error: 'Calendar URL is required' });
+      return;
+    }
+
+    // Validate URL format
+    try {
+      new URL(calendar_url);
+    } catch {
+      res.status(400).json({ error: 'Invalid URL format' });
+      return;
+    }
+
+    // Update the sales rep's calendar URL
+    const [result] = await mysqlPool.query(
+      "UPDATE sales_rep SET calendar_url = ? WHERE uid = ? AND is_active = 1",
+      [calendar_url, uid]
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    res.status(200).json({
+      message: 'Calendar URL updated successfully',
+      data: { calendar_url }
+    });
+  } catch (error) {
+    console.error('Error updating calendar URL:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /sales-rep/leads - Get all leads for the authenticated sales rep
 salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
