@@ -251,7 +251,9 @@ adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Respon
               method: 'POST',
               headers: myHeaders,
               body: JSON.stringify({
-                content: `Lead Assigned: ${name} 
+                content: `[Lead Assigned]
+                
+${name} 
 ${phone} 
 
 ${process.env.LEAD_DOMAIN}/leads/${lead_id}`,
