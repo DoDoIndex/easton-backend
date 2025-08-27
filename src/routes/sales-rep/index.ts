@@ -421,10 +421,10 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
         let finalFollowUpDate = follow_up_date;
         
         if (!follow_up_date) {
-          // Set follow-up date to 1 week from now if not provided
-          const oneWeekFromNow = new Date();
-          oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7);
-          finalFollowUpDate = oneWeekFromNow.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+          // Set follow-up date to 2 days from now if not provided
+          const twoDaysFromNow = new Date();
+          twoDaysFromNow.setDate(twoDaysFromNow.getDate() + 2);
+          finalFollowUpDate = twoDaysFromNow.toISOString().split('T')[0]; // Format as YYYY-MM-DD
         }
         
         await mysqlPool.query(
