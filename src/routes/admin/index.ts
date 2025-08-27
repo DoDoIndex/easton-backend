@@ -28,6 +28,7 @@ adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Respons
     const projectInterest = req.query.project_interest as string;
     const budget = req.query.budget as string;
     const financeNeed = req.query.finance_need as string;
+    const channel = req.query.channel as string;
     const search = req.query.search as string;
 
     // Build WHERE clause for filters
@@ -57,6 +58,11 @@ adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Respons
     if (financeNeed) {
       whereConditions.push('l.finance_need = ?');
       queryParams.push(financeNeed);
+    }
+
+    if (channel) {
+      whereConditions.push('l.channel = ?');
+      queryParams.push(channel);
     }
 
     if (search) {
@@ -121,6 +127,7 @@ adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Respons
         project_interest: projectInterest,
         budget,
         finance_need: financeNeed,
+        channel,
         search
       }
     });
@@ -188,7 +195,7 @@ adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Respon
     }
 
     // Validate required fields
-    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, text_notification } = req.body;
+    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, text_notification } = req.body;
     
     if (!lead_id) {
       res.status(400).json({ error: 'Lead ID is required' });
@@ -224,10 +231,10 @@ adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Respon
 
     // Insert the new lead
     await mysqlPool.query(
-      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [lead_id, name, email || null, phone || null, project_interest || null, budget || null, 
-       click_source || null, website_source || null, ad_source || null, status || 'New', sales_rep, finance_need || null]
+       click_source || null, website_source || null, ad_source || null, status || 'New', sales_rep, finance_need || null, channel || 'Marketing']
     );
 
     // Send welcome text message via OpenPhone
@@ -287,7 +294,8 @@ ${process.env.LEAD_DOMAIN}/leads/${lead_id}`,
         ad_source,
         status: status || 'New',
         sales_rep,
-        finance_need
+        finance_need,
+        channel
       }
     });
   } catch (error) {
@@ -306,13 +314,7 @@ adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Res
     }
 
     const { id } = req.params;
-    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need } = req.body;
-
-    // Validate finance_need if provided
-    if (finance_need && !['Yes', 'No'].includes(finance_need)) {
-      res.status(400).json({ error: 'Finance need must be either "Yes" or "No"' });
-      return;
-    }
+    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel } = req.body;
 
     // Check if lead exists
     const [existingLead] = await mysqlPool.query(
@@ -330,13 +332,13 @@ adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Res
       `UPDATE leads SET 
         name = ?, email = ?, phone = ?, project_interest = ?, budget = ?, 
         click_source = ?, website_source = ?, ad_source = ?, status = ?, 
-        sales_rep = ?, finance_need = ?
+        sales_rep = ?, finance_need = ?, channel = ?
        WHERE lead_id = ?`,
       [name || existingLead[0].name, email || existingLead[0].email, phone || existingLead[0].phone,
        project_interest || existingLead[0].project_interest, budget || existingLead[0].budget,
        click_source || existingLead[0].click_source, website_source || existingLead[0].website_source,
        ad_source || existingLead[0].ad_source, status || existingLead[0].status,
-       sales_rep || existingLead[0].sales_rep, finance_need || existingLead[0].finance_need, id]
+       sales_rep || existingLead[0].sales_rep, finance_need || existingLead[0].finance_need, channel || existingLead[0].channel, id]
     );
 
     // Get updated lead
