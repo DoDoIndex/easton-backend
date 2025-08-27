@@ -162,11 +162,16 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     console.log('Basic leads found:', basicLeads.length);
     console.log('Sample lead:', basicLeads[0]);
     
-    // Get all leads assigned to this sales rep with touch point count and last touched timestamp
+    // Get all leads assigned to this sales rep with touch point count, last touched timestamp, and last touchpoint content
     const complexQuery = `SELECT 
         l.*,
         COALESCE(tp_count.touch_point_count, 0) as touch_point_count,
-        tp_last.last_touched
+        tp_last.last_touched,
+        tp_last_content.description as last_touchpoint_content,
+        tp_last_content.contact_method as last_touchpoint_method,
+        tp_last_content.created_at as last_touchpoint_date,
+        tp_last_content.uid as last_touchpoint_uid,
+        sr_last.name as last_touchpoint_rep_name
        FROM leads l
        LEFT JOIN (
          SELECT lead_id, COUNT(*) as touch_point_count
@@ -180,6 +185,18 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
          WHERE is_active = 1 
          GROUP BY lead_id
        ) tp_last ON l.lead_id = tp_last.lead_id
+       LEFT JOIN (
+         SELECT tp1.lead_id, tp1.description, tp1.contact_method, tp1.created_at, tp1.uid
+         FROM touch_points tp1
+         INNER JOIN (
+           SELECT lead_id, MAX(created_at) as max_created_at
+           FROM touch_points 
+           WHERE is_active = 1 
+           GROUP BY lead_id
+         ) tp2 ON tp1.lead_id = tp2.lead_id AND tp1.created_at = tp2.max_created_at
+         WHERE tp1.is_active = 1
+       ) tp_last_content ON l.lead_id = tp_last_content.lead_id
+       LEFT JOIN sales_rep sr_last ON tp_last_content.uid = sr_last.uid AND sr_last.is_active = 1
        WHERE l.sales_rep = ? 
        ORDER BY l.created_at DESC`;
     
