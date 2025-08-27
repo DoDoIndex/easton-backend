@@ -188,7 +188,7 @@ adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Respon
     }
 
     // Validate required fields
-    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need } = req.body;
+    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, text_notification } = req.body;
     
     if (!lead_id) {
       res.status(400).json({ error: 'Lead ID is required' });
@@ -231,42 +231,44 @@ adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Respon
     );
 
     // Send welcome text message via OpenPhone
-    try {
-      const [rows] = await mysqlPool.query(
-        "SELECT phone FROM sales_rep WHERE uid = ?",
-        [sales_rep]
-      ) as [any[], any];
+    if (text_notification) {
+      try {
+        const [rows] = await mysqlPool.query(
+          "SELECT phone FROM sales_rep WHERE uid = ?",
+          [sales_rep]
+        ) as [any[], any];
 
-      if (rows.length > 0) {
-        const sales_rep_phone = rows[0].phone;        
-        // Strip everything except numbers and add +1
-        const cleanPhone = '+1' + sales_rep_phone.replace(/\D/g, '');
-        const myHeaders = new Headers();
-        myHeaders.append("Authorization", process.env.OPEN_PHONE_API);
-        myHeaders.append("Content-Type", "application/json");
-        
-        const sendLeadNotification = async (number: string) => {
-          await fetch('https://api.openphone.com/v1/messages', {
-            method: 'POST',
-            headers: myHeaders,
-            body: JSON.stringify({
-              content: `New Lead: ${name} 
+        if (rows.length > 0) {
+          const sales_rep_phone = rows[0].phone;        
+          // Strip everything except numbers and add +1
+          const cleanPhone = '+1' + sales_rep_phone.replace(/\D/g, '');
+          const myHeaders = new Headers();
+          myHeaders.append("Authorization", process.env.OPEN_PHONE_API);
+          myHeaders.append("Content-Type", "application/json");
+          
+          const sendLeadNotification = async (number: string) => {
+            await fetch('https://api.openphone.com/v1/messages', {
+              method: 'POST',
+              headers: myHeaders,
+              body: JSON.stringify({
+                content: `Lead Assigned: ${name} 
 ${phone} 
 
 ${process.env.LEAD_DOMAIN}/leads/${lead_id}`,
-              from: '+16578880026',
-              to: [number],
-              userId: 'USNATDaG43' // Dolo's phone number
-            }),
-          });
-        }
+                from: '+16578880026',
+                to: [number],
+                userId: 'USNATDaG43' // Dolo's phone number
+              }),
+            });
+          }
 
-        await sendLeadNotification(cleanPhone); // Sales Rep's phone number
-        await sendLeadNotification('+17147919016'); // An's phone number
+          await sendLeadNotification(cleanPhone); // Sales Rep's phone number
+          await sendLeadNotification('+17147919016'); // An's phone number
+        }
+      } catch (smsError) {
+        console.error('Error sending welcome SMS:', smsError);
+        // Don't fail the lead creation if SMS fails
       }
-    } catch (smsError) {
-      console.error('Error sending welcome SMS:', smsError);
-      // Don't fail the lead creation if SMS fails
     }
 
     res.status(201).json({
