@@ -289,16 +289,10 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
     }
 
     // Validate required fields
-    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, finance_need } = req.body;
+    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, finance_need, channel } = req.body;
     
     if (!name) {
       res.status(400).json({ error: 'Name is required' });
-      return;
-    }
-
-    // Validate finance_need if provided
-    if (finance_need && !['Yes', 'No'].includes(finance_need)) {
-      res.status(400).json({ error: 'Finance need must be either "Yes" or "No"' });
       return;
     }
 
@@ -307,10 +301,10 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
 
     // Insert the new lead
     await mysqlPool.query(
-      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [leadId, name, email || null, phone || null, project_interest || null, budget || null, 
-       click_source || null, website_source || null, ad_source || null, status || 'New', uid, finance_need || null]
+       click_source || null, website_source || null, ad_source || null, status || 'New', uid, finance_need || null, channel || null]
     );
 
     res.status(201).json({
@@ -326,7 +320,8 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
         website_source,
         ad_source,
         status: status || 'New',
-        finance_need
+        finance_need,
+        channel
       }
     });
   } catch (error) {
