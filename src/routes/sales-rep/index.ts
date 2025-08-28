@@ -289,7 +289,7 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
     }
 
     // Validate required fields
-    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, finance_need, channel } = req.body;
+    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, finance_need, channel } = req.body;
     
     if (!name) {
       res.status(400).json({ error: 'Name is required' });
@@ -297,7 +297,7 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
     }
 
     // Generate a unique ID (using timestamp + random number)
-    const leadId = Date.now() + Math.floor(Math.random() * 1000000);
+    const leadId = lead_id || Date.now() + Math.floor(Math.random() * 1000000);
 
     // Insert the new lead
     await mysqlPool.query(
@@ -326,6 +326,128 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
     });
   } catch (error) {
     console.error('Error creating lead:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /sales-rep/leads/:leadId - Edit lead (limited fields)
+salesRepRouter.put('/leads/:leadId', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    const uid = req.userRecord?.uid;
+    const { leadId } = req.params;
+    
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
+
+    // Check if lead exists and belongs to this sales rep
+    const [leadRows] = await mysqlPool.query(
+      "SELECT lead_id FROM leads WHERE lead_id = ? AND sales_rep = ?",
+      [leadId, uid]
+    ) as [any[], any];
+
+    if (leadRows.length === 0) {
+      res.status(404).json({ error: 'Lead not found or access denied' });
+      return;
+    }
+
+    // Extract only the allowed fields from request body
+    const {
+      name,
+      email,
+      phone,
+      project_interest,
+      budget,
+      finance_need,
+      address,
+      city,
+      state,
+      zipcode
+    } = req.body;
+
+    // Validate required fields
+    if (!name) {
+      res.status(400).json({ error: 'Name is required' });
+      return;
+    }
+
+    // Build dynamic update query with only the provided fields
+    const updateFields: string[] = [];
+    const updateValues: any[] = [];
+
+    if (name !== undefined) {
+      updateFields.push('name = ?');
+      updateValues.push(name);
+    }
+    if (email !== undefined) {
+      updateFields.push('email = ?');
+      updateValues.push(email);
+    }
+    if (phone !== undefined) {
+      updateFields.push('phone = ?');
+      updateValues.push(phone);
+    }
+    if (project_interest !== undefined) {
+      updateFields.push('project_interest = ?');
+      updateValues.push(project_interest);
+    }
+    if (budget !== undefined) {
+      updateFields.push('budget = ?');
+      updateValues.push(budget);
+    }
+    if (finance_need !== undefined) {
+      updateFields.push('finance_need = ?');
+      updateValues.push(finance_need);
+    }
+    if (address !== undefined) {
+      updateFields.push('address = ?');
+      updateValues.push(address);
+    }
+    if (city !== undefined) {
+      updateFields.push('city = ?');
+      updateValues.push(city);
+    }
+    if (state !== undefined) {
+      updateFields.push('state = ?');
+      updateValues.push(state);
+    }
+    if (zipcode !== undefined) {
+      updateFields.push('zipcode = ?');
+      updateValues.push(zipcode);
+    }
+
+    if (updateFields.length === 0) {
+      res.status(400).json({ error: 'No valid fields to update' });
+      return;
+    }
+
+    // Add lead_id and uid to update values
+    updateValues.push(leadId, uid);
+
+    // Update the lead
+    const [result] = await mysqlPool.query(
+      `UPDATE leads SET ${updateFields.join(', ')} WHERE lead_id = ? AND sales_rep = ?`,
+      updateValues
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Lead not found or no changes made' });
+      return;
+    }
+
+    // Get the updated lead data
+    const [updatedLead] = await mysqlPool.query(
+      "SELECT * FROM leads WHERE lead_id = ?",
+      [leadId]
+    ) as [any[], any];
+
+    res.status(200).json({
+      message: 'Lead updated successfully',
+      data: updatedLead[0]
+    });
+  } catch (error) {
+    console.error('Error updating lead:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
