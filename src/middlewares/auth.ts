@@ -9,7 +9,6 @@ interface AuthenticatedRequest extends Request {
 }
 
 const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  // console.log(req.headers);
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     unauthorized(res, 'No authorization header found.');
@@ -27,7 +26,6 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
 
   // Check if this is an admin API key
   if (token === process.env.ADMIN_API_KEY) {
-    console.log('Admin API key detected', token);
     req.userRecord = { uid: 'admin_api_key' };
     req.userRole = ['admin'];
     return next();
