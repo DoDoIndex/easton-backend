@@ -148,7 +148,7 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     
     const basicLeadsQuery = "SELECT * FROM leads WHERE sales_rep = ? ORDER BY lead_id DESC";
     
-    const [basicLeads] = await mysqlPool.query(
+    await mysqlPool.query(
       basicLeadsQuery,
       [uid]
     ) as [any[], any];
@@ -219,7 +219,7 @@ salesRepRouter.get('/leads/:leadId', async (req: AuthenticatedRequest, res: expr
     // Get the specific lead with touch point count and last touched timestamp
     const query = `SELECT * FROM leads WHERE lead_id = ? AND sales_rep = ?`;
     
-    const flatQuery = query.replace('?', leadId).replace('?', uid);
+    query.replace('?', leadId).replace('?', uid);
     
     const [leads] = await mysqlPool.query(
       query,
