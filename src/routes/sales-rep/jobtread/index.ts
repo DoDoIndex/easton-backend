@@ -19,17 +19,23 @@ async function jobtread(query: any) {
 
   const res = await fetch(API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "content-type": "text/plain;charset=UTF-8",
+      "accept": "*/*"
+    },
     body: JSON.stringify({ 
       query: { 
-        $: { grantKey: GRANT_KEY }, 
+        $: { 
+          grantKey: GRANT_KEY 
+        }, 
         ...query 
       } 
     })
   });
 
   if (!res.ok) {
-    throw new Error(`JobTread API error: ${res.status} ${res.statusText}`);
+    const errorText = await res.text();
+    throw new Error(`JobTread API error: ${res.status} ${res.statusText} - ${errorText}`);
   }
 
   return res.json();
@@ -57,6 +63,18 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
       return;
     }
 
+    const [salesRepRows] = await mysqlPool.query(
+      "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1",
+      [uid]
+    ) as [any[], any];
+
+    if (salesRepRows.length === 0) {
+        res.status(404).json({ error: 'Sales Rep not found or access denied' });
+        return;
+    }
+    const salesRep = salesRepRows[0];
+    const salesRepName = salesRep.name || 'Unknown';
+
     // Query MySQL to get lead information
     const [leadRows] = await mysqlPool.query(
       "SELECT name, email, phone FROM leads WHERE lead_id = ? AND sales_rep = ?",
@@ -76,46 +94,64 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
       return;
     }
 
-    // Create customer account with type "Residential" using lead data
+    // Create customer account with type "customer" using lead data
     const customerResponse = await jobtread({
       createAccount: {
         $: { 
           organizationId: ORGANIZATION_ID, 
-          name: name, 
-          type: "Residential"
+          name: (process.env.CURRENT_ENVIRONMENT === 'DEV' ? '[TEST] ' : '') + name + " Residence", 
+          type: "customer"
         },
         createdAccount: { 
           id: {}, 
           name: {}, 
+          createdAt: {},
           type: {},
-          createdAt: {}
+          organization: {
+            id: {},
+            name: {}
+          }
         }
       }
     });
 
-    if (!customerResponse.data?.createAccount?.createdAccount?.id) {
+    if (!customerResponse?.createAccount?.createdAccount?.id) {
       res.status(500).json({ error: 'Failed to create customer account' });
       return;
     }
 
-    const customer = customerResponse.data.createAccount.createdAccount;
+    const customer = customerResponse?.createAccount?.createdAccount;
 
-    // If lead has email or phone, update the customer with contact info
+    // Create a contact for the customer
     if (email || phone) {
       await jobtread({
-        updateAccount: {
-          $: { 
-            id: customer.id,
-            ...(email && { email: email }),
-            ...(phone && { phone: phone })
+        createContact: {
+          $: {
+            accountId: customer.id,
+            name,
+            customFieldValues: {
+              Email: email || "",
+              Phone: phone || "",
+              Notes: `Imported from Lead Portal by ${salesRepName}`
+            }
+          },
+          createdContact: {
+            id: {},
+            name: {},
+            title: {},
+            account: { id: {}, name: {} },
+            customFieldValues: {}
           }
         }
       });
     }
 
+    // TODO: update location and other fields for the customer
+    // TODO: create a job for the customer
+
     // Update the leads database with JobTread integration details
     await mysqlPool.query(
-      "UPDATE leads SET integration_id = ?, integration_name = ? WHERE lead_id = ?",
+      "UPDATE leads SET status = 'Imported', integration_id = ?, integration_platform = ? WHERE lead_id = ?",
       [customer.id, 'JobTread', lead_id]
     );
 
