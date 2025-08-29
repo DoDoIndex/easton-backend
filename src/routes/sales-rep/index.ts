@@ -1,5 +1,6 @@
 import express from 'express';
 import mysqlPool from '../../services/_mysqlService';
+import jobtreadRouter from './jobtread';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
@@ -604,5 +605,8 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Mount the jobtread router
+salesRepRouter.use('/jobtread', jobtreadRouter);
 
 export default salesRepRouter; 
