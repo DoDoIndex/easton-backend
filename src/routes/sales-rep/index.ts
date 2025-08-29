@@ -135,8 +135,6 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
 
     // Get the sales rep's name to filter leads
     const salesRepQuery = "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1";
-    console.log('Sales rep query:', salesRepQuery);
-    console.log('Sales rep query params:', [uid]);
     
     const [salesRepRows] = await mysqlPool.query(
       salesRepQuery,
@@ -147,21 +145,13 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
       res.status(404).json({ error: 'Sales rep not found' });
       return;
     }
-
-    // First, let's get the basic leads to see what we're working with
-    console.log('Sales rep UID:', uid);
     
     const basicLeadsQuery = "SELECT * FROM leads WHERE sales_rep = ? ORDER BY lead_id DESC";
-    console.log('Basic leads query:', basicLeadsQuery);
-    console.log('Basic leads query params:', [uid]);
     
-    const [basicLeads] = await mysqlPool.query(
+    await mysqlPool.query(
       basicLeadsQuery,
       [uid]
     ) as [any[], any];
-    
-    console.log('Basic leads found:', basicLeads.length);
-    console.log('Sample lead:', basicLeads[0]);
     
     // Get all leads assigned to this sales rep with touch point count, last touched timestamp, and last touchpoint content
     const complexQuery = `SELECT 
@@ -201,17 +191,10 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
        WHERE l.sales_rep = ? 
        ORDER BY l.created_at DESC`;
     
-    console.log('Complex query:', complexQuery);
-    console.log('Complex query params:', [uid]);
-    
     const [leads] = await mysqlPool.query(
       complexQuery,
       [uid]
     ) as [any[], any];
-    
-    console.log('Complex query leads found:', leads.length);
-    console.log('Sample complex lead:', leads[0]);
-
     res.status(200).json({
       message: 'Leads retrieved successfully',
       data: leads
@@ -228,9 +211,6 @@ salesRepRouter.get('/leads/:leadId', async (req: AuthenticatedRequest, res: expr
     const uid = req.userRecord?.uid;
     const { leadId } = req.params;
 
-    console.log('Sales rep UID:', uid);
-    console.log('Lead ID:', leadId);
-    
     if (!uid) {
       res.status(401).json({ error: 'User not authenticated' });
       return;
@@ -239,19 +219,13 @@ salesRepRouter.get('/leads/:leadId', async (req: AuthenticatedRequest, res: expr
     // Get the specific lead with touch point count and last touched timestamp
     const query = `SELECT * FROM leads WHERE lead_id = ? AND sales_rep = ?`;
     
-    const flatQuery = query.replace('?', leadId).replace('?', uid);
-    
-    console.log('Query with placeholders:', query);
-    console.log('Flat query:', flatQuery);
-    console.log('Query params:', [leadId, uid]);
+    query.replace('?', leadId).replace('?', uid);
     
     const [leads] = await mysqlPool.query(
       query,
       [leadId, uid]
     ) as [any[], any];
-    
-    console.log('Leads found:', leads);
-
+  
     if (leads.length === 0) {
       res.status(404).json({ error: 'Lead not found or access denied' });
       return;
@@ -537,9 +511,6 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
     let systemNote = '';
     let statusUpdated = false;
     let finalFollowUpDate = null;
-
-    console.log('status:', status);
-    console.log('Current lead status:', currentLead.status);
 
     // Handle status update if provided
     if (status && status !== currentLead.status) {
