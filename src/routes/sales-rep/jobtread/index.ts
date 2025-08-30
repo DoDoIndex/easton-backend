@@ -1,6 +1,6 @@
 import express from 'express';
-import fetch from 'node-fetch';
 import mysqlPool from '../../../services/_mysqlService';
+import { jobtread } from '../../../utils';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
@@ -8,38 +8,7 @@ interface AuthenticatedRequest extends express.Request {
 
 const jobtreadRouter = express.Router();
 
-const API_URL = "https://api.jobtread.com/pave";
-const GRANT_KEY = process.env.JOBTREAD_GRANT_KEY;
 const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
-
-async function jobtread(query: any) {
-  if (!GRANT_KEY) {
-    throw new Error('JobTread grant key not configured');
-  }
-
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: { 
-      "content-type": "text/plain;charset=UTF-8",
-      "accept": "*/*"
-    },
-    body: JSON.stringify({ 
-      query: { 
-        $: { 
-          grantKey: GRANT_KEY 
-        }, 
-        ...query 
-      } 
-    })
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`JobTread API error: ${res.status} ${res.statusText} - ${errorText}`);
-  }
-
-  return res.json();
-}
 
 // POST /sales-rep/jobtread/customer - Create customer from lead data
 jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {

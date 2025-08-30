@@ -1,6 +1,7 @@
 import express from 'express';
 import mysqlPool from '../../services/_mysqlService';
 import jobtreadRouter from './jobtread';
+import { jobtread } from '../../utils';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
@@ -201,6 +202,148 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     });
   } catch (error) {
     console.error('Error fetching leads:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /sales-rep/jobs - Get all jobs (leads with status 'Imported') for the authenticated sales rep
+salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    const uid = req.userRecord?.uid;
+    
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
+
+    // Get the sales rep's name to filter jobs
+    const salesRepQuery = "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1";
+    
+    const [salesRepRows] = await mysqlPool.query(
+      salesRepQuery,
+      [uid]
+    ) as [any[], any];
+
+    if (salesRepRows.length === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+    
+    // Get all jobs (leads with status 'Imported') assigned to this sales rep
+    const simpleQuery = `SELECT * FROM leads 
+       WHERE sales_rep = ? AND status = 'Imported'
+       ORDER BY created_at DESC`;
+    
+    const [customers] = await mysqlPool.query(
+      simpleQuery,
+      [uid]
+    ) as [any[], any];
+
+    // Add empty jobs array and integration_name to each customer
+    customers.forEach(customer => {
+      customer.integration_name = null;
+      customer.jobs = [];
+    });
+
+    // Collect all integration_id and integration_platform from customers
+    const integrationData = customers.map(customer => ({
+      integration_id: customer.integration_id,
+      integration_platform: customer.integration_platform
+    }));
+    
+    console.log('Integration Data from Customers:', integrationData);
+    
+    // Collect integration_id only for JobTread customers
+    const jobTreadCustomerIds = customers
+      .filter(customer => customer.integration_platform === 'JobTread')
+      .map(customer => customer.integration_id);
+    
+    console.log('JobTread Customer IDs:', jobTreadCustomerIds);
+    
+    // Fetch all jobs from JobTread for these customer IDs
+    let jobTreadJobs = [];
+    if (jobTreadCustomerIds.length > 0) {
+      try {
+        const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
+        if (!ORGANIZATION_ID) {
+          console.warn('JobTread organization ID not configured');
+        } else {
+          const jobTreadResponse = await jobtread({
+            organization: {
+              $: {
+                id: ORGANIZATION_ID
+              },
+              accounts: {
+                $: {
+                  where: {
+                    and: [
+                      {
+                        "=": [
+                          {
+                            "field": "type"
+                          },
+                          "customer"
+                        ]
+                      },
+                      {
+                        "in": [
+                          {
+                            "field": "id"
+                          },
+                          jobTreadCustomerIds
+                        ]
+                      }
+                    ]
+                  },
+                  "size": 10
+                },
+                "nextPage": {},
+                "previousPage": {},
+                "nodes": {
+                  "id": {},
+                  "name": {},
+                  "jobs": {
+                    "$": {},
+                    "nodes": {
+                      "id": {},
+                      "name": {}
+                    }
+                  }
+                }
+              }
+            }
+          });
+          
+          jobTreadJobs = jobTreadResponse?.organization?.accounts?.nodes || [];
+          console.log('JobTread Jobs Response:', JSON.stringify(jobTreadJobs, null, 2));
+          // console.log('JobTread Jobs Response:', JSON.stringify(jobTreadResponse, null, 2));
+        }
+      } catch (error) {
+        console.error('Error fetching JobTread jobs:', error);
+      }
+    }
+    
+    // Match JobTread customers with local customers and populate jobs array and integration_name
+    if (jobTreadJobs.length > 0) {
+      customers.forEach(customer => {
+        if (customer.integration_platform === 'JobTread' && customer.integration_id) {
+          const matchingJobTreadCustomer = jobTreadJobs.find(jtCustomer => jtCustomer.id === customer.integration_id);
+          if (matchingJobTreadCustomer) {
+            customer.integration_name = matchingJobTreadCustomer.name;
+            if (matchingJobTreadCustomer.jobs && matchingJobTreadCustomer.jobs.nodes) {
+              customer.jobs = matchingJobTreadCustomer.jobs.nodes;
+            }
+          }
+        }
+      });
+    }
+    
+    res.status(200).json({
+      message: 'Customers retrieved successfully',
+      data: customers
+    });
+  } catch (error) {
+    console.error('Error fetching customers:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
