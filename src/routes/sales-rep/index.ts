@@ -188,7 +188,7 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
          WHERE tp1.is_active = 1
        ) tp_last_content ON l.lead_id = tp_last_content.lead_id
        LEFT JOIN sales_rep sr_last ON tp_last_content.uid = sr_last.uid AND sr_last.is_active = 1
-       WHERE l.sales_rep = ? 
+       WHERE l.sales_rep = ? AND l.status != 'Imported'
        ORDER BY l.created_at DESC`;
     
     const [leads] = await mysqlPool.query(
