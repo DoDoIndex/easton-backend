@@ -10,11 +10,10 @@ export const forbidden = (res: Response, message: string = 'Forbidden') => {
 };
 
 const API_URL = "https://api.jobtread.com/pave";
-const GRANT_KEY = process.env.JOBTREAD_GRANT_KEY;
 
-export async function jobtread(query: any) {
-  if (!GRANT_KEY) {
-    throw new Error('JobTread grant key not configured');
+export async function jobtread(query: any, grantKey: string) {
+  if (!grantKey) {
+    throw new Error('JobTread grant key not provided');
   }
 
   const res = await fetch(API_URL, {
@@ -26,7 +25,7 @@ export async function jobtread(query: any) {
     body: JSON.stringify({ 
       query: { 
         $: { 
-          grantKey: GRANT_KEY 
+          grantKey: grantKey 
         }, 
         ...query 
       } 

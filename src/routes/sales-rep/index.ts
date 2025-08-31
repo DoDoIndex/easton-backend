@@ -5,6 +5,8 @@ import { jobtread } from '../../utils';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
+  userRole?: string[];
+  grantKey?: string;
 }
 
 const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
@@ -218,18 +220,12 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
       return;
     }
 
-    // Get the sales rep's name to filter jobs
-    const salesRepQuery = "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1";
-    
-    const [salesRepRows] = await mysqlPool.query(
-      salesRepQuery,
-      [uid]
-    ) as [any[], any];
-
-    if (salesRepRows.length === 0) {
-      res.status(404).json({ error: 'Sales rep not found' });
+    // Get grant key from auth middleware
+    if (!req.grantKey) {
+      res.status(400).json({ error: 'JobTread grant key not configured for this user' });
       return;
     }
+    const grantKey = req.grantKey;
     
     // Get all jobs (leads with status 'Imported') assigned to this sales rep
     const simpleQuery = `SELECT * FROM leads 
@@ -330,7 +326,7 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
                   }
                 }
               }
-            });
+            }, grantKey);
             
             const batchJobs = jobTreadResponse?.organization?.accounts?.nodes || [];
             jobTreadJobs.push(...batchJobs);
@@ -430,7 +426,7 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
                   }
                 }
               }
-            });
+            }, grantKey);
             
             const batchJobs = documentsResponse?.organization?.jobs?.nodes || [];
             allJobsWithDocuments = allJobsWithDocuments.concat(batchJobs);
