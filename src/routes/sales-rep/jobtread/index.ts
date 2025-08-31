@@ -19,7 +19,7 @@ const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
   [4] Update Location  
   [5] Create one comment per touch point
   [6] Add finance need, channel, budget, and project interest as a message to the customer
-  [7] create a job for the customer
+  [7] Create a job for the customer
   [8] Assign Sales Process Checklist to the job
 */
 
@@ -121,7 +121,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
     // [2] Update the leads database with JobTread integration details
     await mysqlPool.query(
       "UPDATE leads SET status = 'Imported', integration_id = ?, integration_platform = ?, commission_rate = ?  WHERE lead_id = ?",
-      [customer.id, 'JobTread', salesRepCommissionRate, lead_id]
+      [customer.id, 'JobTread', channel === 'Self Generated' ? 6 : salesRepCommissionRate, lead_id]
     );
 
     // [3] Create a contact for the customer
@@ -256,7 +256,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
       }
     }
 
-    // [7] create a job for the customer
+    // [7] Create a job for the customer
     let jobId = null;
     if (locationId) {
       try {
