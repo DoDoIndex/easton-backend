@@ -12,6 +12,17 @@ const jobtreadRouter = express.Router();
 
 const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
 
+/*
+  [1] Create customer account with type "customer" using lead data
+  [2] Update the leads database with JobTread integration details
+  [3] Create a contact for the customer
+  [4] Update Location  
+  [5] Create one comment per touch point
+  [6] Add finance need, channel, budget, and project interest as a message to the customer
+  [7] create a job for the customer
+  [8] Assign Sales Process Checklist to the job
+*/
+
 // POST /sales-rep/jobtread/customer - Create customer from lead data
 jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
@@ -57,7 +68,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
 
     // Query MySQL to get lead information
     const [leadRows] = await mysqlPool.query(
-      "SELECT name, email, phone FROM leads WHERE lead_id = ? AND sales_rep = ?",
+      "SELECT * FROM leads WHERE lead_id = ? AND sales_rep = ?",
       [lead_id, uid]
     ) as [any[], any];
 
@@ -67,14 +78,14 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
     }
 
     const lead = leadRows[0];
-    const { name, email, phone } = lead;
+    const { name, email, phone, address, city, state, zipcode, finance_need, channel, budget, project_interest } = lead;
 
     if (!name) {
       res.status(400).json({ error: 'Lead must have a name' });
       return;
     }
 
-    // Create customer account with type "customer" using lead data
+    // [1] Create customer account with type "customer" using lead data
     const customerResponse = await jobtread({
       createAccount: {
         $: { 
@@ -106,33 +117,66 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
 
     const customer = customerResponse?.createAccount?.createdAccount;
 
-    // Create a contact for the customer
+    // [2] Update the leads database with JobTread integration details
+    await mysqlPool.query(
+      "UPDATE leads SET status = 'Imported', integration_id = ?, integration_platform = ? WHERE lead_id = ?",
+      [customer.id, 'JobTread', lead_id]
+    );
+
+    // [3] Create a contact for the customer
+    let contactId = null;
     if (email || phone) {
-      await jobtread({
-        createContact: {
-          $: {
-            accountId: customer.id,
-            name: name,
-            title: customer_title || "",
-            customFieldValues: {
-              Email: email || "",
-              Phone: phone || "",
-              Notes: contact_notes
+      try {
+        const contactResponse = await jobtread({
+          createContact: {
+            $: {
+              accountId: customer.id,
+              name: name,
+              title: customer_title || "",
+              customFieldValues: {
+                Email: email || "",
+                Phone: phone || "",
+                Notes: contact_notes
+              }
+            },
+            createdContact: {
+              id: {},
+              name: {},
+              title: {},
+              account: { id: {}, name: {} },
+              customFieldValues: {}
             }
-          },
-          createdContact: {
-            id: {},
-            name: {},
-            title: {},
-            account: { id: {}, name: {} },
-            customFieldValues: {}
           }
-        }
-      }, grantKey);
+        }, grantKey);
+        contactId = contactResponse?.createContact?.createdContact?.id;
+      } catch (error) {
+        console.error('[WARN] Error creating contact: ', error);
+      }
     }
 
-    // TODO: update location and other fields for the customer
-    // TODO: create a job for the customer
+    // [4] Update Location
+    let locationId = null;
+    if (address && city) {
+      try {
+        const locationResponse = await jobtread({
+          createLocation: {
+            $: {
+              accountId: customer.id,
+              contactId: contactId || "",
+              name: address,
+              address: address + ", " + city || "" + ", " + state || "CA" + " " + zipcode || ""
+            },
+            createdLocation: {
+              id: {},
+            }
+          },
+          
+        }, grantKey);
+        locationId = locationResponse?.createLocation?.createdLocation?.id;
+      } catch (error) {
+        console.error('[WARN] Error creating location:', error);
+      }
+    }
     
     // Query touch points for the lead to create individual comments
     const [touchPointRows] = await mysqlPool.query(
@@ -140,7 +184,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
       [lead_id]
     ) as [any[], any];
 
-    // Create one comment per touch point
+    // [5] Create one comment per touch point
     if (touchPointRows.length > 0) {
       for (const tp of touchPointRows) {
         let message = tp.description || '';
@@ -157,6 +201,42 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
         });
         message += '\n\n' + formattedDate;
 
+        try {
+          await jobtread({
+            createComment: {
+              $: {
+                isVisibleToAll: false,
+                isVisibleToInternalRoles: true,
+                isVisibleToCustomerRoles: false,
+                isVisibleToVendorRoles: false,
+                message: message,
+                targetId: customer.id,
+                targetType: 'account',
+              }
+            }
+          }, grantKey);
+        } catch (error) {
+          console.error('[WARN] Error creating comment:', error);
+        }
+      }
+    } 
+    
+    // [6] Add finance need, channel, budget, and project interest as a message to the customer
+    if (finance_need || channel || budget || project_interest) {
+      let message = '';
+      if (finance_need) {
+        message += 'Finance Need: ' + finance_need + '\n';
+      }
+      if (channel) {
+        message += 'Channel: ' + channel + '\n';
+      }
+      if (budget) {
+        message += 'Budget: ' + budget + '\n';
+      }
+      if (project_interest) {
+        message += 'Project Interest: ' + project_interest + '\n';
+      }
+      try {
         await jobtread({
           createComment: {
             $: {
@@ -170,14 +250,48 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
             }
           }
         }, grantKey);
+      } catch (error) {
+        console.error('[WARN] Error creating comment:', error);
       }
-    } 
+    }
 
-    // Update the leads database with JobTread integration details
-    await mysqlPool.query(
-      "UPDATE leads SET status = 'Imported', integration_id = ?, integration_platform = ? WHERE lead_id = ?",
-      [customer.id, 'JobTread', lead_id]
-    );
+    // [7] create a job for the customer
+    let jobId = null;
+    if (locationId) {
+      try {
+        const jobResponse = await jobtread({
+          createJob: {
+            $: {
+              locationId: locationId,
+            },
+            createdJob: {
+              id: {},
+            }
+          }
+        }, grantKey); 
+        jobId = jobResponse?.createJob?.createdJob?.id;
+      } catch (error) {
+        console.error('[WARN] Error creating job:', error);
+      }
+    }
+
+    if (jobId) {
+      // [8] Assign Sales Process Checklist to the job
+      try {
+        await jobtread({
+          copyTaskTemplateToTarget: {
+            $: {
+              notify: false,
+              targetId: jobId,
+              targetType: "job",
+              taskTemplateId: "22PEApzGMSk8" // Sales Process Checklist 
+            }
+          }
+        }, grantKey); 
+      } catch (error) {
+        console.error('[WARN] Error assigning Sales Process Checklist to job:', error);
+      }
+    }
 
     res.status(201).json({
       message: 'Residential customer created successfully from lead',
