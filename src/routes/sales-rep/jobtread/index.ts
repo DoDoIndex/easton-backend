@@ -133,19 +133,45 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
 
     // TODO: update location and other fields for the customer
     // TODO: create a job for the customer
-    await jobtread({
-      createComment: {
-        $: {
-          isVisibleToAll: false,
-          isVisibleToInternalRoles: true,
-          isVisibleToCustomerRoles: false,
-          isVisibleToVendorRoles: false,
-          message: 'THIS IS A MESSAGE',
-          targetId: customer.id,
-          targetType: 'account',
+    
+    // Query touch points for the lead to create individual comments
+    const [touchPointRows] = await mysqlPool.query(
+      "SELECT description, system_note, created_at FROM touch_points WHERE lead_id = ? AND is_active = 1 ORDER BY created_at ASC",
+      [lead_id]
+    ) as [any[], any];
+
+    // Create one comment per touch point
+    if (touchPointRows.length > 0) {
+      for (const tp of touchPointRows) {
+        let message = tp.description || '';
+        if (tp.system_note) {
+          message += '\n\nSystem Note: ' + tp.system_note;
         }
+        
+        // Format date as "- Aug 20, 2025"
+        const dateObj = new Date(tp.created_at);
+        const formattedDate = '- ' + dateObj.toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric', 
+          year: 'numeric' 
+        });
+        message += '\n\n' + formattedDate;
+
+        await jobtread({
+          createComment: {
+            $: {
+              isVisibleToAll: false,
+              isVisibleToInternalRoles: true,
+              isVisibleToCustomerRoles: false,
+              isVisibleToVendorRoles: false,
+              message: message,
+              targetId: customer.id,
+              targetType: 'account',
+            }
+          }
+        }, grantKey);
       }
-    }, grantKey);
+    } 
 
     // Update the leads database with JobTread integration details
     await mysqlPool.query(
