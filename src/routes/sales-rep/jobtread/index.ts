@@ -55,7 +55,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
 
     // Get sales rep name for the lead import
     const [salesRepRows] = await mysqlPool.query(
-      "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1",
+      "SELECT name, commission_rate FROM sales_rep WHERE uid = ? AND is_active = 1",
       [uid]
     ) as [any[], any];
 
@@ -65,7 +65,8 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
     }
 
     const salesRepName = salesRepRows[0].name || 'Unknown';
-
+    const salesRepCommissionRate = salesRepRows[0].commission_rate || 0;
+  
     // Query MySQL to get lead information
     const [leadRows] = await mysqlPool.query(
       "SELECT * FROM leads WHERE lead_id = ? AND sales_rep = ?",
@@ -119,8 +120,8 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
 
     // [2] Update the leads database with JobTread integration details
     await mysqlPool.query(
-      "UPDATE leads SET status = 'Imported', integration_id = ?, integration_platform = ? WHERE lead_id = ?",
-      [customer.id, 'JobTread', lead_id]
+      "UPDATE leads SET status = 'Imported', integration_id = ?, integration_platform = ?, commission_rate = ?  WHERE lead_id = ?",
+      [customer.id, 'JobTread', salesRepCommissionRate, lead_id]
     );
 
     // [3] Create a contact for the customer
