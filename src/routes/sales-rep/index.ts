@@ -1,11 +1,14 @@
 import express from 'express';
 import mysqlPool from '../../services/_mysqlService';
 import jobtreadRouter from './jobtread';
+import { jobtread } from '../../utils';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
 }
 
+const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
+const JOBTREAD_BATCH_SIZE = 10;
 const salesRepRouter = express.Router();
 
 // GET /sales-rep/info - Get sales rep info
@@ -201,6 +204,276 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
     });
   } catch (error) {
     console.error('Error fetching leads:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /sales-rep/jobs - Get all jobs (leads with status 'Imported') for the authenticated sales rep
+salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    const uid = req.userRecord?.uid;
+    
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
+
+    // Get the sales rep's name to filter jobs
+    const salesRepQuery = "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1";
+    
+    const [salesRepRows] = await mysqlPool.query(
+      salesRepQuery,
+      [uid]
+    ) as [any[], any];
+
+    if (salesRepRows.length === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+    
+    // Get all jobs (leads with status 'Imported') assigned to this sales rep
+    const simpleQuery = `SELECT * FROM leads 
+       WHERE sales_rep = ? AND status = 'Imported'
+       ORDER BY created_at DESC`;
+    
+    const [customers] = await mysqlPool.query(
+      simpleQuery,
+      [uid]
+    ) as [any[], any];
+
+    // Add empty jobs array and integration_name to each customer
+    customers.forEach(customer => {
+      customer.integration_name = null;
+      customer.jobs = [];
+      customer.estimate = false;
+      customer.estimate_status = '';
+      customer.contract = false;
+      customer.contract_status = '';
+    });
+
+    // Collect all integration_id and integration_platform from customers
+    const integrationData = customers.map(customer => ({
+      integration_id: customer.integration_id,
+      integration_platform: customer.integration_platform
+    }));
+    
+    console.log('Integration Data from Customers:', integrationData);
+    
+    // Collect integration_id only for JobTread customers
+    const jobTreadCustomerIds = customers
+      .filter(customer => customer.integration_platform === 'JobTread')
+      .map(customer => customer.integration_id);
+    
+    console.log('JobTread Customer IDs:', jobTreadCustomerIds);
+    
+    // Fetch all jobs from JobTread for these customer IDs in batches
+    let jobTreadJobs = [];
+    if (jobTreadCustomerIds.length > 0) {
+      try {
+        if (!ORGANIZATION_ID) {
+          console.warn('JobTread organization ID not configured');
+        } else {
+          // Batch customer IDs into chunks
+          const batchSize = JOBTREAD_BATCH_SIZE;
+          const batches = [];
+          for (let i = 0; i < jobTreadCustomerIds.length; i += batchSize) {
+            batches.push(jobTreadCustomerIds.slice(i, i + batchSize));
+          }
+          
+          console.log(`Processing ${batches.length} batches of JobTread customer IDs`);
+          
+          // Process each batch and collect results
+          for (const batch of batches) {
+            console.log(`Processing batch with ${batch.length} customer IDs:`, batch);
+            
+            const jobTreadResponse = await jobtread({
+              organization: {
+                $: {
+                  id: ORGANIZATION_ID
+                },
+                accounts: {
+                  $: {
+                    where: {
+                      and: [
+                        {
+                          "=": [
+                            {
+                              "field": "type"
+                            },
+                            "customer"
+                          ]
+                        },
+                        {
+                          "in": [
+                            {
+                              "field": "id"
+                            },
+                            batch
+                          ]
+                        }
+                      ]
+                    },
+                    "size": JOBTREAD_BATCH_SIZE
+                  },
+                  "nextPage": {},
+                  "previousPage": {},
+                  "nodes": {
+                    "id": {},
+                    "name": {},
+                    "jobs": {
+                      "$": {},
+                      "nodes": {
+                        "id": {},
+                        "name": {}
+                      }
+                    }
+                  }
+                }
+              }
+            });
+            
+            const batchJobs = jobTreadResponse?.organization?.accounts?.nodes || [];
+            jobTreadJobs.push(...batchJobs);
+            console.log(`Batch processed, got ${batchJobs.length} accounts`);
+          }
+          
+          console.log('JobTread Jobs Response (all batches):', JSON.stringify(jobTreadJobs, null, 2));
+          // console.log('JobTread Jobs Response:', JSON.stringify(jobTreadResponse, null, 2));
+        }
+      } catch (error) {
+        console.error('Error fetching JobTread jobs:', error);
+      }
+    }
+
+    // Match JobTread customers with local customers and populate jobs array and integration_name
+    if (jobTreadJobs.length > 0) {
+      customers.forEach(customer => {
+        if (customer.integration_platform === 'JobTread' && customer.integration_id) {
+          const matchingJobTreadCustomer = jobTreadJobs.find(jtCustomer => jtCustomer.id === customer.integration_id);
+          if (matchingJobTreadCustomer) {
+            customer.integration_name = matchingJobTreadCustomer.name;
+            if (matchingJobTreadCustomer.jobs && matchingJobTreadCustomer.jobs.nodes) {
+              customer.jobs = matchingJobTreadCustomer.jobs.nodes;
+            }
+          }
+        }
+      });
+    }
+
+    // Create flat map array of job_id to lead_id pairs
+    const jobToLeadMap = customers.flatMap(customer => 
+      customer.jobs.map(job => ({
+        [job.id]: customer.lead_id
+      }))
+    );
+    
+    // Create array of just job_ids
+    const jobIds = customers.flatMap(customer => 
+      customer.jobs.map(job => job.id)
+    );
+    
+    console.log('Job to Lead ID Map:', jobToLeadMap);
+    console.log('Job IDs:', jobIds);
+    
+    // Fetch documents for all jobs to determine estimate/contract status
+    if (jobIds.length > 0) {
+      try {
+        if (ORGANIZATION_ID) {
+          // Batch job IDs into chunks to respect API limits
+          const batchSize = JOBTREAD_BATCH_SIZE;
+          const jobBatches = [];
+          for (let i = 0; i < jobIds.length; i += batchSize) {
+            jobBatches.push(jobIds.slice(i, i + batchSize));
+          }
+          
+          console.log(`Processing ${jobIds.length} jobs in ${jobBatches.length} batches of max ${batchSize}`);
+          
+          let allJobsWithDocuments = [];
+          
+          // Process each batch
+          for (const batch of jobBatches) {
+            const documentsResponse = await jobtread({
+              organization: {
+                $: {
+                  id: ORGANIZATION_ID
+                },
+                jobs: {
+                  $: {
+                    where: [
+                      "id",
+                      "in",
+                      batch
+                    ],
+                    size: JOBTREAD_BATCH_SIZE
+                  },
+                  nextPage: {},
+                  previousPage: {},
+                  nodes: {
+                    id: {},
+                    name: {},
+                    status: {},
+                    documents: {
+                      $: {
+                        where: {
+                          or: [
+                            { like: [{ field: "fullName" }, "%Contract%"] },
+                            { like: [{ field: "fullName" }, "%Estimate%"] }
+                          ]
+                        }
+                      },
+                      nodes: {
+                        fullName: {},
+                        price: {},
+                        status: {}
+                      }
+                    }
+                  }
+                }
+              }
+            });
+            
+            const batchJobs = documentsResponse?.organization?.jobs?.nodes || [];
+            allJobsWithDocuments = allJobsWithDocuments.concat(batchJobs);
+          }
+          
+          console.log(`Fetched documents for ${allJobsWithDocuments.length} jobs total`);
+          
+          // Update estimate/contract status for each customer based on job documents
+          customers.forEach(customer => {
+            // Check all jobs for this customer
+            customer.jobs.forEach(customerJob => {
+              const jobWithDocs = allJobsWithDocuments.find(jwd => jwd.id === customerJob.id);
+              if (jobWithDocs && jobWithDocs.documents && jobWithDocs.documents.nodes) {
+                const documents = jobWithDocs.documents.nodes;
+                
+                // Check for Contract documents
+                const contractDoc = documents.find(doc => doc.fullName.toLowerCase().includes('contract'));
+                if (contractDoc) {
+                  customer.contract = true;
+                  customer.contract_status = contractDoc.status || '';
+                }
+                
+                // Check for Estimate documents
+                const estimateDoc = documents.find(doc => doc.fullName.toLowerCase().includes('estimate'));
+                if (estimateDoc) {
+                  customer.estimate = true;
+                  customer.estimate_status = estimateDoc.status || '';
+                }
+              }
+            });
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching job documents:', error);
+      }
+    }
+    
+    res.status(200).json({
+      message: 'Customers retrieved successfully',
+      data: customers
+    });
+  } catch (error) {
+    console.error('Error fetching customers:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
