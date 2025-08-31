@@ -241,10 +241,8 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
     customers.forEach(customer => {
       customer.integration_name = null;
       customer.jobs = [];
-      customer.estimate = false;
-      customer.estimate_status = '';
-      customer.contract = false;
-      customer.contract_status = '';
+      customer.estimates = [];
+      customer.contracts = [];
     });
 
     // Collect all integration_id and integration_platform from customers
@@ -443,18 +441,24 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
                 const documents = jobWithDocs.documents.nodes;
                 
                 // Check for Contract documents
-                const contractDoc = documents.find(doc => doc.fullName.toLowerCase().includes('contract'));
-                if (contractDoc) {
-                  customer.contract = true;
-                  customer.contract_status = contractDoc.status || '';
-                }
+                const contractDocs = documents.filter(doc => doc.fullName.toLowerCase().includes('contract'));
+                contractDocs.forEach(contractDoc => {
+                  customer.contracts.push({
+                    fullName: contractDoc.fullName,
+                    price: contractDoc.price || 0,
+                    status: contractDoc.status || ''
+                  });
+                });
                 
                 // Check for Estimate documents
-                const estimateDoc = documents.find(doc => doc.fullName.toLowerCase().includes('estimate'));
-                if (estimateDoc) {
-                  customer.estimate = true;
-                  customer.estimate_status = estimateDoc.status || '';
-                }
+                const estimateDocs = documents.filter(doc => doc.fullName.toLowerCase().includes('estimate'));
+                estimateDocs.forEach(estimateDoc => {
+                  customer.estimates.push({
+                    fullName: estimateDoc.fullName,
+                    price: estimateDoc.price || 0,
+                    status: estimateDoc.status || ''
+                  });
+                });
               }
             });
           });
