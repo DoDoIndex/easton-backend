@@ -7,6 +7,8 @@ interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
 }
 
+const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
+const JOBTREAD_BATCH_SIZE = 10;
 const salesRepRouter = express.Router();
 
 // GET /sales-rep/info - Get sales rep info
@@ -243,6 +245,10 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
     customers.forEach(customer => {
       customer.integration_name = null;
       customer.jobs = [];
+      customer.estimate = false;
+      customer.estimate_status = '';
+      customer.contract = false;
+      customer.contract_status = '';
     });
 
     // Collect all integration_id and integration_platform from customers
@@ -260,69 +266,85 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
     
     console.log('JobTread Customer IDs:', jobTreadCustomerIds);
     
-    // Fetch all jobs from JobTread for these customer IDs
+    // Fetch all jobs from JobTread for these customer IDs in batches
     let jobTreadJobs = [];
     if (jobTreadCustomerIds.length > 0) {
       try {
-        const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
         if (!ORGANIZATION_ID) {
           console.warn('JobTread organization ID not configured');
         } else {
-          const jobTreadResponse = await jobtread({
-            organization: {
-              $: {
-                id: ORGANIZATION_ID
-              },
-              accounts: {
+          // Batch customer IDs into chunks
+          const batchSize = JOBTREAD_BATCH_SIZE;
+          const batches = [];
+          for (let i = 0; i < jobTreadCustomerIds.length; i += batchSize) {
+            batches.push(jobTreadCustomerIds.slice(i, i + batchSize));
+          }
+          
+          console.log(`Processing ${batches.length} batches of JobTread customer IDs`);
+          
+          // Process each batch and collect results
+          for (const batch of batches) {
+            console.log(`Processing batch with ${batch.length} customer IDs:`, batch);
+            
+            const jobTreadResponse = await jobtread({
+              organization: {
                 $: {
-                  where: {
-                    and: [
-                      {
-                        "=": [
-                          {
-                            "field": "type"
-                          },
-                          "customer"
-                        ]
-                      },
-                      {
-                        "in": [
-                          {
-                            "field": "id"
-                          },
-                          jobTreadCustomerIds
-                        ]
-                      }
-                    ]
-                  },
-                  "size": 10
+                  id: ORGANIZATION_ID
                 },
-                "nextPage": {},
-                "previousPage": {},
-                "nodes": {
-                  "id": {},
-                  "name": {},
-                  "jobs": {
-                    "$": {},
-                    "nodes": {
-                      "id": {},
-                      "name": {}
+                accounts: {
+                  $: {
+                    where: {
+                      and: [
+                        {
+                          "=": [
+                            {
+                              "field": "type"
+                            },
+                            "customer"
+                          ]
+                        },
+                        {
+                          "in": [
+                            {
+                              "field": "id"
+                            },
+                            batch
+                          ]
+                        }
+                      ]
+                    },
+                    "size": JOBTREAD_BATCH_SIZE
+                  },
+                  "nextPage": {},
+                  "previousPage": {},
+                  "nodes": {
+                    "id": {},
+                    "name": {},
+                    "jobs": {
+                      "$": {},
+                      "nodes": {
+                        "id": {},
+                        "name": {}
+                      }
                     }
                   }
                 }
               }
-            }
-          });
+            });
+            
+            const batchJobs = jobTreadResponse?.organization?.accounts?.nodes || [];
+            jobTreadJobs.push(...batchJobs);
+            console.log(`Batch processed, got ${batchJobs.length} accounts`);
+          }
           
-          jobTreadJobs = jobTreadResponse?.organization?.accounts?.nodes || [];
-          console.log('JobTread Jobs Response:', JSON.stringify(jobTreadJobs, null, 2));
+          console.log('JobTread Jobs Response (all batches):', JSON.stringify(jobTreadJobs, null, 2));
           // console.log('JobTread Jobs Response:', JSON.stringify(jobTreadResponse, null, 2));
         }
       } catch (error) {
         console.error('Error fetching JobTread jobs:', error);
       }
     }
-    
+
     // Match JobTread customers with local customers and populate jobs array and integration_name
     if (jobTreadJobs.length > 0) {
       customers.forEach(customer => {
@@ -336,6 +358,114 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
           }
         }
       });
+    }
+
+    // Create flat map array of job_id to lead_id pairs
+    const jobToLeadMap = customers.flatMap(customer => 
+      customer.jobs.map(job => ({
+        [job.id]: customer.lead_id
+      }))
+    );
+    
+    // Create array of just job_ids
+    const jobIds = customers.flatMap(customer => 
+      customer.jobs.map(job => job.id)
+    );
+    
+    console.log('Job to Lead ID Map:', jobToLeadMap);
+    console.log('Job IDs:', jobIds);
+    
+    // Fetch documents for all jobs to determine estimate/contract status
+    if (jobIds.length > 0) {
+      try {
+        if (ORGANIZATION_ID) {
+          // Batch job IDs into chunks to respect API limits
+          const batchSize = JOBTREAD_BATCH_SIZE;
+          const jobBatches = [];
+          for (let i = 0; i < jobIds.length; i += batchSize) {
+            jobBatches.push(jobIds.slice(i, i + batchSize));
+          }
+          
+          console.log(`Processing ${jobIds.length} jobs in ${jobBatches.length} batches of max ${batchSize}`);
+          
+          let allJobsWithDocuments = [];
+          
+          // Process each batch
+          for (const batch of jobBatches) {
+            const documentsResponse = await jobtread({
+              organization: {
+                $: {
+                  id: ORGANIZATION_ID
+                },
+                jobs: {
+                  $: {
+                    where: [
+                      "id",
+                      "in",
+                      batch
+                    ],
+                    size: JOBTREAD_BATCH_SIZE
+                  },
+                  nextPage: {},
+                  previousPage: {},
+                  nodes: {
+                    id: {},
+                    name: {},
+                    status: {},
+                    documents: {
+                      $: {
+                        where: {
+                          or: [
+                            { like: [{ field: "fullName" }, "%Contract%"] },
+                            { like: [{ field: "fullName" }, "%Estimate%"] }
+                          ]
+                        }
+                      },
+                      nodes: {
+                        fullName: {},
+                        price: {},
+                        status: {}
+                      }
+                    }
+                  }
+                }
+              }
+            });
+            
+            const batchJobs = documentsResponse?.organization?.jobs?.nodes || [];
+            allJobsWithDocuments = allJobsWithDocuments.concat(batchJobs);
+          }
+          
+          console.log(`Fetched documents for ${allJobsWithDocuments.length} jobs total`);
+          
+          // Update estimate/contract status for each customer based on job documents
+          customers.forEach(customer => {
+            // Check all jobs for this customer
+            customer.jobs.forEach(customerJob => {
+              const jobWithDocs = allJobsWithDocuments.find(jwd => jwd.id === customerJob.id);
+              if (jobWithDocs && jobWithDocs.documents && jobWithDocs.documents.nodes) {
+                const documents = jobWithDocs.documents.nodes;
+                
+                // Check for Contract documents
+                const contractDoc = documents.find(doc => doc.fullName.toLowerCase().includes('contract'));
+                if (contractDoc) {
+                  customer.contract = true;
+                  customer.contract_status = contractDoc.status || '';
+                }
+                
+                // Check for Estimate documents
+                const estimateDoc = documents.find(doc => doc.fullName.toLowerCase().includes('estimate'));
+                if (estimateDoc) {
+                  customer.estimate = true;
+                  customer.estimate_status = estimateDoc.status || '';
+                }
+              }
+            });
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching job documents:', error);
+      }
     }
     
     res.status(200).json({
