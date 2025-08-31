@@ -121,7 +121,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
     // [2] Update the leads database with JobTread integration details
     await mysqlPool.query(
       "UPDATE leads SET status = 'Imported', integration_id = ?, integration_platform = ?, commission_rate = ?  WHERE lead_id = ?",
-      [customer.id, 'JobTread', salesRepCommissionRate, lead_id]
+      [customer.id, 'JobTread', channel === 'Self Generated' ? 6 : salesRepCommissionRate, lead_id]
     );
 
     // [3] Create a contact for the customer
