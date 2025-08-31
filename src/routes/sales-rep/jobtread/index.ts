@@ -4,6 +4,8 @@ import { jobtread } from '../../../utils';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
+  userRole?: string[];
+  grantKey?: string;
 }
 
 const jobtreadRouter = express.Router();
@@ -25,24 +27,33 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
       return;
     }
 
-    const { lead_id } = req.body;
+    const { lead_id, customer_type, customer_title, contact_notes } = req.body;
     
     if (!lead_id) {
       res.status(400).json({ error: 'Lead ID is required' });
       return;
     }
 
+    // Get grant key from auth middleware
+    if (!req.grantKey) {
+      res.status(400).json({ error: 'JobTread grant key not configured for this user' });
+      return;
+    }
+
+    const grantKey = req.grantKey;
+
+    // Get sales rep name for the lead import
     const [salesRepRows] = await mysqlPool.query(
       "SELECT name FROM sales_rep WHERE uid = ? AND is_active = 1",
       [uid]
     ) as [any[], any];
 
     if (salesRepRows.length === 0) {
-        res.status(404).json({ error: 'Sales Rep not found or access denied' });
-        return;
+      res.status(404).json({ error: 'Sales Rep not found or access denied' });
+      return;
     }
-    const salesRep = salesRepRows[0];
-    const salesRepName = salesRep.name || 'Unknown';
+
+    const salesRepName = salesRepRows[0].name || 'Unknown';
 
     // Query MySQL to get lead information
     const [leadRows] = await mysqlPool.query(
@@ -68,8 +79,12 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
       createAccount: {
         $: { 
           organizationId: ORGANIZATION_ID, 
-          name: (process.env.CURRENT_ENVIRONMENT === 'DEV' ? '[TEST] ' : '') + name + " Residence", 
-          type: "customer"
+          name: (process.env.CURRENT_ENVIRONMENT === 'DEV' ? '[TEST] ' : '') + name + " " + customer_type, 
+          type: "customer",
+          isTaxable: false,
+          customFieldValues: {
+            Notes: `Imported from Lead Portal by ${salesRepName}`
+          }
         },
         createdAccount: { 
           id: {}, 
@@ -82,7 +97,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
           }
         }
       }
-    });
+    }, grantKey);
 
     if (!customerResponse?.createAccount?.createdAccount?.id) {
       res.status(500).json({ error: 'Failed to create customer account' });
@@ -97,11 +112,12 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
         createContact: {
           $: {
             accountId: customer.id,
-            name,
+            name: name,
+            title: customer_title || "",
             customFieldValues: {
               Email: email || "",
               Phone: phone || "",
-              Notes: `Imported from Lead Portal by ${salesRepName}`
+              Notes: contact_notes
             }
           },
           createdContact: {
@@ -112,11 +128,24 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
             customFieldValues: {}
           }
         }
-      });
+      }, grantKey);
     }
 
     // TODO: update location and other fields for the customer
     // TODO: create a job for the customer
+    await jobtread({
+      createComment: {
+        $: {
+          isVisibleToAll: false,
+          isVisibleToInternalRoles: true,
+          isVisibleToCustomerRoles: false,
+          isVisibleToVendorRoles: false,
+          message: 'THIS IS A MESSAGE',
+          targetId: customer.id,
+          targetType: 'account',
+        }
+      }
+    }, grantKey);
 
     // Update the leads database with JobTread integration details
     await mysqlPool.query(
@@ -162,6 +191,14 @@ jobtreadRouter.get('/customer/:customerId', async (req: AuthenticatedRequest, re
       return;
     }
 
+    // Get grant key from auth middleware
+    if (!req.grantKey) {
+      res.status(400).json({ error: 'JobTread grant key not configured for this user' });
+      return;
+    }
+
+    const grantKey = req.grantKey;
+
     // Get customer account details
     const customerResponse = await jobtread({
       account: {
@@ -183,7 +220,7 @@ jobtreadRouter.get('/customer/:customerId', async (req: AuthenticatedRequest, re
           }
         }
       }
-    });
+    }, grantKey);
 
     if (!customerResponse.data?.account) {
       res.status(404).json({ error: 'Customer not found' });
@@ -219,7 +256,7 @@ jobtreadRouter.get('/customer/:customerId', async (req: AuthenticatedRequest, re
           }
         }
       }
-    });
+    }, grantKey);
 
     // Get customer locations
     const locationsResponse = await jobtread({
@@ -239,7 +276,7 @@ jobtreadRouter.get('/customer/:customerId', async (req: AuthenticatedRequest, re
           }
         }
       }
-    });
+    }, grantKey);
 
     res.status(200).json({
       message: 'Customer and jobs retrieved successfully',

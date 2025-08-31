@@ -6,6 +6,7 @@ import { unauthorized } from '../utils/index';
 interface AuthenticatedRequest extends Request {
   userRecord?: any;
   userRole?: string[];
+  grantKey?: string;
 }
 
 const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -68,11 +69,14 @@ const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: Ne
     const [adminRows] = data[1] as [any[], any];
 
     const roles: string[] = [];
+    
     if (Array.isArray(agentRows) && agentRows.length > 0) {
       roles.push('sales_rep');
+      req.grantKey = agentRows[0].grant_key;
     }
     if (Array.isArray(adminRows) && adminRows.length > 0) {
       roles.push('admin');
+      req.grantKey = adminRows[0].grant_key || req.grantKey;
     }
 
     req.userRole = roles;
