@@ -12,12 +12,6 @@ const jobtreadRouter = express.Router();
 
 const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
 
-// GET /sales-rep/jobtread/test - Test route
-jobtreadRouter.get('/test', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
-  console.log("Grant Key:", req.grantKey);
-  res.status(200).json({ message: req.grantKey });
-});
-
 // POST /sales-rep/jobtread/customer - Create customer from lead data
 jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
