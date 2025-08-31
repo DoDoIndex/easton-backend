@@ -19,7 +19,7 @@ const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
   [4] Update Location  
   [5] Create one comment per touch point
   [6] Add finance need, channel, budget, and project interest as a message to the customer
-  [7] create a job for the customer
+  [7] Create a job for the customer
   [8] Assign Sales Process Checklist to the job
 */
 
@@ -256,7 +256,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
       }
     }
 
-    // [7] create a job for the customer
+    // [7] Create a job for the customer
     let jobId = null;
     if (locationId) {
       try {

@@ -244,21 +244,11 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
       customer.estimates = [];
       customer.contracts = [];
     });
-
-    // Collect all integration_id and integration_platform from customers
-    const integrationData = customers.map(customer => ({
-      integration_id: customer.integration_id,
-      integration_platform: customer.integration_platform
-    }));
-    
-    console.log('Integration Data from Customers:', integrationData);
     
     // Collect integration_id only for JobTread customers
     const jobTreadCustomerIds = customers
       .filter(customer => customer.integration_platform === 'JobTread')
       .map(customer => customer.integration_id);
-    
-    console.log('JobTread Customer IDs:', jobTreadCustomerIds);
     
     // Fetch all jobs from JobTread for these customer IDs in batches
     let jobTreadJobs = [];
@@ -273,13 +263,9 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
           for (let i = 0; i < jobTreadCustomerIds.length; i += batchSize) {
             batches.push(jobTreadCustomerIds.slice(i, i + batchSize));
           }
-          
-          console.log(`Processing ${batches.length} batches of JobTread customer IDs`);
-          
+
           // Process each batch and collect results
           for (const batch of batches) {
-            console.log(`Processing batch with ${batch.length} customer IDs:`, batch);
-            
             const jobTreadResponse = await jobtread({
               organization: {
                 $: {
@@ -328,11 +314,7 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
             
             const batchJobs = jobTreadResponse?.organization?.accounts?.nodes || [];
             jobTreadJobs.push(...batchJobs);
-            console.log(`Batch processed, got ${batchJobs.length} accounts`);
           }
-          
-          console.log('JobTread Jobs Response (all batches):', JSON.stringify(jobTreadJobs, null, 2));
-          // console.log('JobTread Jobs Response:', JSON.stringify(jobTreadResponse, null, 2));
         }
       } catch (error) {
         console.error('Error fetching JobTread jobs:', error);
@@ -353,21 +335,11 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
         }
       });
     }
-
-    // Create flat map array of job_id to lead_id pairs
-    const jobToLeadMap = customers.flatMap(customer => 
-      customer.jobs.map(job => ({
-        [job.id]: customer.lead_id
-      }))
-    );
     
     // Create array of just job_ids
     const jobIds = customers.flatMap(customer => 
       customer.jobs.map(job => job.id)
     );
-    
-    console.log('Job to Lead ID Map:', jobToLeadMap);
-    console.log('Job IDs:', jobIds);
     
     // Fetch documents for all jobs to determine estimate/contract status
     if (jobIds.length > 0) {
@@ -379,9 +351,7 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
           for (let i = 0; i < jobIds.length; i += batchSize) {
             jobBatches.push(jobIds.slice(i, i + batchSize));
           }
-          
-          console.log(`Processing ${jobIds.length} jobs in ${jobBatches.length} batches of max ${batchSize}`);
-          
+
           let allJobsWithDocuments = [];
           
           // Process each batch
@@ -429,9 +399,7 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
             const batchJobs = documentsResponse?.organization?.jobs?.nodes || [];
             allJobsWithDocuments = allJobsWithDocuments.concat(batchJobs);
           }
-          
-          console.log(`Fetched documents for ${allJobsWithDocuments.length} jobs total`);
-          
+
           // Update estimate/contract status for each customer based on job documents
           customers.forEach(customer => {
             // Check all jobs for this customer
