@@ -505,7 +505,7 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
     }
 
     // Validate required fields
-    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, finance_need, channel } = req.body;
+    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, finance_need, channel, notes } = req.body;
     
     if (!name) {
       res.status(400).json({ error: 'Name is required' });
@@ -517,10 +517,10 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
 
     // Insert the new lead
     await mysqlPool.query(
-      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, notes) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [leadId, name, email || null, phone || null, project_interest || null, budget || null, 
-       click_source || null, website_source || null, ad_source || null, status || 'New', uid, finance_need || null, channel || null]
+       click_source || null, website_source || null, ad_source || null, status || 'New', uid, finance_need || null, channel || null, notes || null]
     );
 
     res.status(201).json({
@@ -537,7 +537,8 @@ salesRepRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Res
         ad_source,
         status: status || 'New',
         finance_need,
-        channel
+        channel,
+        notes
       }
     });
   } catch (error) {
