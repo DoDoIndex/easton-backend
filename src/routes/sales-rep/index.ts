@@ -695,7 +695,7 @@ salesRepRouter.get('/leads/:leadId/touch-points', async (req: AuthenticatedReque
     const [touchPoints] = await mysqlPool.query(
       `SELECT 
         tp.*,
-        sr.name as contact_name
+        COALESCE(sr.name, tp.uid) as contact_name
        FROM touch_points tp
        LEFT JOIN sales_rep sr ON tp.uid = sr.uid AND sr.is_active = 1
        WHERE tp.lead_id = ? AND tp.is_active = 1 
