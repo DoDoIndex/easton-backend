@@ -358,4 +358,57 @@ adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Res
   }
 });
 
+adminRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { leadId } = req.params;
+    const { uid, contact_method, description } = req.body;
+    const systemNote = "Automated Message by Admin";
+
+    if (!leadId) {
+      res.status(400).json({ error: 'Lead ID is required' });
+      return;
+    }
+
+    // Check if lead exists and belongs to this sales rep
+    const [leadRows] = await mysqlPool.query(
+      "SELECT lead_id FROM leads WHERE lead_id = ? AND sales_rep = ?",
+      [leadId, uid]
+    ) as [any[], any];
+
+    if (leadRows.length === 0) {
+      res.status(404).json({ error: 'Lead not found or access denied' });
+      return;
+    }
+
+    // Generate a unique touch_id using UUID
+    const touchId = `tp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Insert the new touch point
+    await mysqlPool.query(
+      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description, system_note) 
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [touchId, uid, leadId, contact_method, description, systemNote]
+    );
+
+    res.status(201).json({
+      message: 'Touch point created successfully',
+      data: {
+        touch_id: touchId,
+        uid,
+        lead_id: leadId,
+        contact_method,
+      }
+    });
+  } catch (error) {
+    console.error('Error creating admin touch point:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default adminRouter; 
