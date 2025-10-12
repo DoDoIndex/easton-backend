@@ -377,12 +377,12 @@ adminRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequest
 
     // Check if lead exists and belongs to this sales rep
     const [leadRows] = await mysqlPool.query(
-      "SELECT lead_id FROM leads WHERE lead_id = ? AND sales_rep = ?",
-      [leadId, uid]
+      "SELECT lead_id FROM leads WHERE lead_id = ?",
+      [leadId]
     ) as [any[], any];
 
     if (leadRows.length === 0) {
-      res.status(404).json({ error: 'Lead not found or access denied' });
+      res.status(404).json({ error: 'Lead not found' });
       return;
     }
 
