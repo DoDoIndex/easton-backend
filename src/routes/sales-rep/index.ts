@@ -167,7 +167,7 @@ salesRepRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Resp
         tp_last_content.contact_method as last_touchpoint_method,
         tp_last_content.created_at as last_touchpoint_date,
         tp_last_content.uid as last_touchpoint_uid,
-        sr_last.name as last_touchpoint_rep_name
+        COALESCE(sr_last.name, tp_last_content.uid) as last_touchpoint_rep_name
        FROM leads l
        LEFT JOIN (
          SELECT lead_id, COUNT(*) as touch_point_count
