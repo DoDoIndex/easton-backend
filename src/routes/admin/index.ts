@@ -368,7 +368,7 @@ adminRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequest
 
     const { leadId } = req.params;
     const { uid, contact_method, description } = req.body;
-    const systemNote = "Automated Message by Admin";
+    const systemNote = "Automated Message";
 
     if (!leadId) {
       res.status(400).json({ error: 'Lead ID is required' });
