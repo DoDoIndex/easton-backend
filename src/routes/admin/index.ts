@@ -195,7 +195,7 @@ adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Respon
     }
 
     // Validate required fields
-    const { lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, text_notification, notes } = req.body;
+    const { lead_id, name, email, phone, city, state, zipcode, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, text_notification, notes } = req.body;
     
     if (!lead_id) {
       res.status(400).json({ error: 'Lead ID is required' });
@@ -231,9 +231,9 @@ adminRouter.post('/leads', async (req: AuthenticatedRequest, res: express.Respon
 
     // Insert the new lead
     await mysqlPool.query(
-      `INSERT INTO leads (lead_id, name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, notes) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [lead_id, name, email || null, phone || null, project_interest || null, budget || null, 
+      `INSERT INTO leads (lead_id, name, email, phone, city, state, zipcode, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, notes) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [lead_id, name, email || null, phone || null, city || null, state || null, zipcode || null, project_interest || null, budget || null, 
        click_source || null, website_source || null, ad_source || null, status || 'New', sales_rep, finance_need || null, channel || 'Marketing', notes || null]
     );
 
