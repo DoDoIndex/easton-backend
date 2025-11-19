@@ -837,7 +837,7 @@ adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Res
     }
 
     const { id } = req.params;
-    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, notes } = req.body;
+    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, notes, commission_rate } = req.body;
 
     // Check if lead exists
     const [existingLead] = await mysqlPool.query(
@@ -855,13 +855,13 @@ adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Res
       `UPDATE leads SET 
         name = ?, email = ?, phone = ?, project_interest = ?, budget = ?, 
         click_source = ?, website_source = ?, ad_source = ?, status = ?, 
-        sales_rep = ?, finance_need = ?, channel = ?, notes = ?
+        sales_rep = ?, finance_need = ?, channel = ?, notes = ?, commission_rate = ?
        WHERE lead_id = ?`,
       [name || existingLead[0].name, email || existingLead[0].email, phone || existingLead[0].phone,
        project_interest || existingLead[0].project_interest, budget || existingLead[0].budget,
        click_source || existingLead[0].click_source, website_source || existingLead[0].website_source,
        ad_source || existingLead[0].ad_source, status || existingLead[0].status,
-       sales_rep || existingLead[0].sales_rep, finance_need || existingLead[0].finance_need, channel || existingLead[0].channel, notes || existingLead[0].notes, id]
+       sales_rep || existingLead[0].sales_rep, finance_need || existingLead[0].finance_need, channel || existingLead[0].channel, notes || existingLead[0].notes, commission_rate || existingLead[0].commission_rate, id]
     );
 
     // Get updated lead
