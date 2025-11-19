@@ -126,6 +126,66 @@ adminRouter.get('/sales-reps', async (req: AuthenticatedRequest, res: express.Re
   }
 });
 
+// GET /admin/sales-reps/:uid - Get specific sales rep by ID with detailed info including email from Firebase
+adminRouter.get('/sales-reps/:uid', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid } = req.params;
+
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    // Fetch specific sales rep from database
+    const [salesReps] = await mysqlPool.query(
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE uid = ?",
+      [uid]
+    ) as [any[], any];
+
+    if (salesReps.length === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    const rep = salesReps[0];
+
+    // Enrich with email from Firebase
+    let email = null;
+    try {
+      const userRecord = await firebaseAdmin.auth().getUser(rep.uid);
+      email = userRecord.email || null;
+    } catch (error) {
+      console.error('Error fetching email from Firebase:', error);
+      // Continue without email if Firebase fails
+    }
+
+    const enrichedSalesRep = {
+      uid: rep.uid,
+      name: rep.name,
+      grant_key: rep.grant_key,
+      commission_rate: rep.commission_rate,
+      phone: rep.phone,
+      email: email,
+      calendar_url: rep.calendar_url,
+      is_active: rep.is_active
+    };
+
+    res.status(200).json({ 
+      message: 'Sales rep retrieved successfully',
+      data: enrichedSalesRep
+    });
+  } catch (error) {
+    console.error('Error fetching sales rep:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /admin/phone - Update sales rep phone number (admin can update any sales rep)
 adminRouter.put('/phone', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
