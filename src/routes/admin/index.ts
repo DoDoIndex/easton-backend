@@ -1,14 +1,216 @@
 import express from 'express';
 import mysqlPool from '../../services/_mysqlService';
+import { jobtread } from '../../utils';
+import firebaseAdmin from '../../services/_fiebaseService';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
   userRole?: string[];
+  grantKey?: string;
 }
 
+const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
+const JOBTREAD_BATCH_SIZE = 10;
 const adminRouter = express.Router();
 
-// GET /admin/leads - Get all leads with pagination and filtering
+// GET /admin/info - Get admin user info
+adminRouter.get('/info', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const uid = req.userRecord?.uid;
+    
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
+
+    // Get admin info from database first
+    const [adminRows] = await mysqlPool.query(
+      "SELECT uid, name, phone, is_active FROM admin WHERE uid = ? AND is_active = 1",
+      [uid]
+    ) as [any[], any];
+
+    if (adminRows.length === 0) {
+      res.status(404).json({ error: 'Admin not found' });
+      return;
+    }
+
+    const adminData = adminRows[0];
+
+    // Get email from Firebase
+    let email = null;
+    try {
+      const userRecord = await firebaseAdmin.auth().getUser(uid);
+      email = userRecord.email || null;
+    } catch (firebaseError) {
+      console.error('Error fetching email from Firebase:', firebaseError);
+      // Continue without email if Firebase fails
+    }
+
+    const adminInfo = {
+      uid: adminData.uid,
+      name: adminData.name,
+      email: email,
+      phone: adminData.phone,
+      is_active: adminData.is_active,
+      role: 'admin'
+    };
+
+    res.status(200).json({ 
+      message: 'Admin info retrieved successfully',
+      data: adminInfo
+    });
+  } catch (error) {
+    console.error('Error fetching admin info:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /admin/sales-reps - Get all sales reps with detailed info including emails from Firebase
+adminRouter.get('/sales-reps', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    // Fetch all sales reps from database
+    const [salesReps] = await mysqlPool.query(
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE is_active = 1 ORDER BY name ASC",
+      []
+    ) as [any[], any];
+
+    // Enrich with emails from Firebase
+    const enrichedSalesReps = [];
+    for (const rep of salesReps) {
+      try {
+        const userRecord = await firebaseAdmin.auth().getUser(rep.uid);
+        enrichedSalesReps.push({
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: userRecord.email || null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      } catch (error) {
+        // If Firebase lookup fails, still include the rep without email
+        enrichedSalesReps.push({
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      }
+    }
+
+    res.status(200).json({ 
+      message: 'Sales reps retrieved successfully',
+      data: enrichedSalesReps
+    });
+  } catch (error) {
+    console.error('Error fetching sales reps:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /admin/phone - Update sales rep phone number (admin can update any sales rep)
+adminRouter.put('/phone', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid, phone } = req.body;
+    
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    if (!phone) {
+      res.status(400).json({ error: 'Phone number is required' });
+      return;
+    }
+
+    // Update the phone number for the specified sales rep
+    const [result] = await mysqlPool.query(
+      "UPDATE sales_rep SET phone = ? WHERE uid = ? AND is_active = 1",
+      [phone, uid]
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    res.status(200).json({ 
+      message: 'Phone number updated successfully',
+      data: { uid, phone }
+    });
+  } catch (error) {
+    console.error('Error updating sales rep phone:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /admin/calendar-url - Update sales rep calendar URL (admin can update any sales rep)
+adminRouter.put('/calendar-url', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid, calendar_url } = req.body;
+    
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    if (!calendar_url) {
+      res.status(400).json({ error: 'Calendar URL is required' });
+      return;
+    }
+
+    // Update the calendar URL for the specified sales rep
+    const [result] = await mysqlPool.query(
+      "UPDATE sales_rep SET calendar_url = ? WHERE uid = ? AND is_active = 1",
+      [calendar_url, uid]
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    res.status(200).json({ 
+      message: 'Calendar URL updated successfully',
+      data: { uid, calendar_url }
+    });
+  } catch (error) {
+    console.error('Error updating sales rep calendar URL:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /admin/leads - Get all leads with detailed touch point information (admin access to all)
 adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
     // Check if user has admin role
@@ -17,73 +219,52 @@ adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Respons
       return;
     }
 
-    // Parse pagination parameters
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 1000);
-    const offset = (page - 1) * limit;
+    // Fetch all sales reps first (there are only ~10 max)
+    const [salesReps] = await mysqlPool.query(
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE is_active = 1",
+      []
+    ) as [any[], any];
 
-    // Parse filter parameters
-    const status = req.query.status as string;
-    const salesRep = req.query.sales_rep as string;
-    const projectInterest = req.query.project_interest as string;
-    const budget = req.query.budget as string;
-    const financeNeed = req.query.finance_need as string;
-    const channel = req.query.channel as string;
-    const search = req.query.search as string;
-
-    // Build WHERE clause for filters
-    let whereConditions = [];
-    let queryParams = [];
-
-    if (status) {
-      whereConditions.push('l.status = ?');
-      queryParams.push(status);
+    // Create a map of sales rep UIDs to detailed info, and fetch emails from Firebase
+    const salesRepMap = new Map();
+    for (const rep of salesReps) {
+      try {
+        const userRecord = await firebaseAdmin.auth().getUser(rep.uid);
+        salesRepMap.set(rep.uid, {
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: userRecord.email || null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      } catch (error) {
+        // If Firebase lookup fails, still include the rep without email
+        salesRepMap.set(rep.uid, {
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      }
     }
 
-    if (salesRep) {
-      whereConditions.push('l.sales_rep = ?');
-      queryParams.push(salesRep);
-    }
-
-    if (projectInterest) {
-      whereConditions.push('l.project_interest = ?');
-      queryParams.push(projectInterest);
-    }
-
-    if (budget) {
-      whereConditions.push('l.budget = ?');
-      queryParams.push(budget);
-    }
-
-    if (financeNeed) {
-      whereConditions.push('l.finance_need = ?');
-      queryParams.push(financeNeed);
-    }
-
-    if (channel) {
-      whereConditions.push('l.channel = ?');
-      queryParams.push(channel);
-    }
-
-    if (search) {
-      whereConditions.push('(l.name LIKE ? OR l.email LIKE ? OR l.phone LIKE ?)');
-      const searchPattern = `%${search}%`;
-      queryParams.push(searchPattern, searchPattern, searchPattern);
-    }
-
-    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
-
-    // Get total count for pagination
-    const countQuery = `SELECT COUNT(*) as total FROM leads l ${whereClause}`;
-    const [countResult] = await mysqlPool.query(countQuery, queryParams) as [any[], any];
-    const totalLeads = countResult[0].total;
-
-    // Get leads with touch point count and last touched timestamp
-    const leadsQuery = `
-      SELECT 
+    // Get all leads with detailed touch point information (admin sees all leads) - no pagination limit
+    const complexQuery = `SELECT 
         l.*,
         COALESCE(tp_count.touch_point_count, 0) as touch_point_count,
-        tp_last.last_touched
+        tp_last.last_touched,
+        tp_last_content.description as last_touchpoint_content,
+        tp_last_content.contact_method as last_touchpoint_method,
+        tp_last_content.created_at as last_touchpoint_date,
+        tp_last_content.uid as last_touchpoint_uid,
+        COALESCE(sr_last.name, tp_last_content.uid) as last_touchpoint_rep_name
        FROM leads l
        LEFT JOIN (
          SELECT lead_id, COUNT(*) as touch_point_count
@@ -97,43 +278,337 @@ adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Respons
          WHERE is_active = 1 
          GROUP BY lead_id
        ) tp_last ON l.lead_id = tp_last.lead_id
-       ${whereClause}
-       ORDER BY l.created_at DESC
-       LIMIT ? OFFSET ?`;
+       LEFT JOIN (
+         SELECT tp1.lead_id, tp1.description, tp1.contact_method, tp1.created_at, tp1.uid
+         FROM touch_points tp1
+         INNER JOIN (
+           SELECT lead_id, MAX(created_at) as max_created_at
+           FROM touch_points 
+           WHERE is_active = 1 
+           GROUP BY lead_id
+         ) tp2 ON tp1.lead_id = tp2.lead_id AND tp1.created_at = tp2.max_created_at
+         WHERE tp1.is_active = 1
+       ) tp_last_content ON l.lead_id = tp_last_content.lead_id
+       LEFT JOIN sales_rep sr_last ON tp_last_content.uid = sr_last.uid AND sr_last.is_active = 1
+       WHERE l.status != 'Imported'
+       ORDER BY l.created_at DESC`;
 
-    const [leads] = await mysqlPool.query(leadsQuery, [...queryParams, limit, offset]) as [any[], any];
+    const [leads] = await mysqlPool.query(complexQuery, []) as [any[], any];
 
-    // Calculate pagination info
-    const totalPages = Math.ceil(totalLeads / limit);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
+    // Replace sales_rep UID with detailed sales rep object
+    const enrichedLeads = leads.map(lead => ({
+      ...lead,
+      sales_rep: (lead.sales_rep && lead.sales_rep !== 'unassigned') ? (salesRepMap.get(lead.sales_rep) || null) : null
+    }));
 
     res.status(200).json({
       message: 'Leads retrieved successfully',
-      data: leads,
-      pagination: {
-        current_page: page,
-        total_pages: totalPages,
-        total_leads: totalLeads,
-        limit: limit,
-        has_next_page: hasNextPage,
-        has_prev_page: hasPrevPage,
-        next_page: hasNextPage ? page + 1 : null,
-        prev_page: hasPrevPage ? page - 1 : null
-      },
-      filters: {
-        status,
-        sales_rep: salesRep,
-        project_interest: projectInterest,
-        budget,
-        finance_need: financeNeed,
-        channel,
-        search
-      }
+      data: enrichedLeads
     });
 
   } catch (error) {
     console.error('Error fetching admin leads:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /admin/jobs - Get all jobs (admin access to all jobs)
+adminRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    // Get grant key from auth middleware (admin can use any grant key)
+    if (!req.grantKey) {
+      res.status(400).json({ error: 'JobTread grant key not configured' });
+      return;
+    }
+    const grantKey = req.grantKey;
+    
+    // Get all jobs (leads with status 'Imported') - admin sees all
+    const simpleQuery = `SELECT * FROM leads 
+       WHERE status = 'Imported'
+       ORDER BY created_at DESC`;
+    
+    const [customers] = await mysqlPool.query(simpleQuery, []) as [any[], any];
+
+    // Add empty jobs array and integration_name to each customer
+    customers.forEach(customer => {
+      customer.integration_name = null;
+      customer.jobs = [];
+      customer.estimates = [];
+      customer.contracts = [];
+    });
+    
+    // Collect integration_id only for JobTread customers
+    const jobTreadCustomerIds = customers
+      .filter(customer => customer.integration_platform === 'JobTread')
+      .map(customer => customer.integration_id);
+    
+    // Fetch all jobs from JobTread for these customer IDs in batches
+    let jobTreadJobs = [];
+    if (jobTreadCustomerIds.length > 0) {
+      try {
+        if (!ORGANIZATION_ID) {
+          console.warn('JobTread organization ID not configured');
+        } else {
+          // Batch customer IDs into chunks
+          const batchSize = JOBTREAD_BATCH_SIZE;
+          const batches = [];
+          for (let i = 0; i < jobTreadCustomerIds.length; i += batchSize) {
+            batches.push(jobTreadCustomerIds.slice(i, i + batchSize));
+          }
+
+          // Process each batch and collect results
+          for (const batch of batches) {
+            const jobTreadResponse = await jobtread({
+              organization: {
+                $: {
+                  id: ORGANIZATION_ID
+                },
+                accounts: {
+                  $: {
+                    where: {
+                      and: [
+                        {
+                          "=": [
+                            {
+                              "field": "type"
+                            },
+                            "customer"
+                          ]
+                        },
+                        {
+                          "in": [
+                            {
+                              "field": "id"
+                            },
+                            batch
+                          ]
+                        }
+                      ]
+                    },
+                    "size": JOBTREAD_BATCH_SIZE
+                  },
+                  "nextPage": {},
+                  "previousPage": {},
+                  "nodes": {
+                    "id": {},
+                    "name": {},
+                    "jobs": {
+                      "$": {},
+                      "nodes": {
+                        "id": {},
+                        "name": {}
+                      }
+                    }
+                  }
+                }
+              }
+            }, grantKey);
+            
+            const batchJobs = jobTreadResponse?.organization?.accounts?.nodes || [];
+            jobTreadJobs.push(...batchJobs);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching JobTread jobs:', error);
+      }
+    }
+
+    // Match JobTread customers with local customers and populate jobs array and integration_name
+    if (jobTreadJobs.length > 0) {
+      customers.forEach(customer => {
+        if (customer.integration_platform === 'JobTread' && customer.integration_id) {
+          const matchingJobTreadCustomer = jobTreadJobs.find(jtCustomer => jtCustomer.id === customer.integration_id);
+          if (matchingJobTreadCustomer) {
+            customer.integration_name = matchingJobTreadCustomer.name;
+            if (matchingJobTreadCustomer.jobs && matchingJobTreadCustomer.jobs.nodes) {
+              customer.jobs = matchingJobTreadCustomer.jobs.nodes;
+            }
+          }
+        }
+      });
+    }
+    
+    // Create array of just job_ids
+    const jobIds = customers.flatMap(customer => 
+      customer.jobs.map(job => job.id)
+    );
+    
+    // Fetch documents for all jobs to determine estimate/contract status
+    if (jobIds.length > 0) {
+      try {
+        if (ORGANIZATION_ID) {
+          // Batch job IDs into chunks to respect API limits
+          const batchSize = JOBTREAD_BATCH_SIZE;
+          const jobBatches = [];
+          for (let i = 0; i < jobIds.length; i += batchSize) {
+            jobBatches.push(jobIds.slice(i, i + batchSize));
+          }
+
+          let allJobsWithDocuments = [];
+          
+          // Process each batch
+          for (const batch of jobBatches) {
+            const documentsResponse = await jobtread({
+              organization: {
+                $: {
+                  id: ORGANIZATION_ID
+                },
+                jobs: {
+                  $: {
+                    where: {
+                      "in": [
+                        {
+                          "field": "id"
+                        },
+                        batch
+                      ]
+                    },
+                    "size": JOBTREAD_BATCH_SIZE
+                  },
+                  "nextPage": {},
+                  "previousPage": {},
+                  "nodes": {
+                    "id": {},
+                    "documents": {
+                      "$": {},
+                      "nodes": {
+                        "fullName": {},
+                        "price": {},
+                        "status": {}
+                      }
+                    }
+                  }
+                }
+              }
+            }, grantKey);
+            
+            const batchJobs = documentsResponse?.organization?.jobs?.nodes || [];
+            allJobsWithDocuments = allJobsWithDocuments.concat(batchJobs);
+          }
+
+          // Update estimate/contract status for each customer based on job documents
+          customers.forEach(customer => {
+            // Check all jobs for this customer
+            customer.jobs.forEach(customerJob => {
+              const jobWithDocs = allJobsWithDocuments.find(jwd => jwd.id === customerJob.id);
+              if (jobWithDocs && jobWithDocs.documents && jobWithDocs.documents.nodes) {
+                const documents = jobWithDocs.documents.nodes;
+                
+                // Check for Contract documents
+                const contractDocs = documents.filter(doc => doc.fullName.toLowerCase().includes('contract'));
+                contractDocs.forEach(contractDoc => {
+                  customer.contracts.push({
+                    fullName: contractDoc.fullName,
+                    price: contractDoc.price || 0,
+                    status: contractDoc.status || ''
+                  });
+                });
+                
+                // Check for Estimate documents
+                const estimateDocs = documents.filter(doc => doc.fullName.toLowerCase().includes('estimate'));
+                estimateDocs.forEach(estimateDoc => {
+                  customer.estimates.push({
+                    fullName: estimateDoc.fullName,
+                    price: estimateDoc.price || 0,
+                    status: estimateDoc.status || ''
+                  });
+                });
+              }
+            });
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching job documents:', error);
+      }
+    }
+    
+    res.status(200).json({
+      message: 'Customers retrieved successfully',
+      data: customers
+    });
+  } catch (error) {
+    console.error('Error fetching customers:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /admin/leads/:leadId - Get specific lead by ID (admin access to any lead)
+adminRouter.get('/leads/:leadId', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { leadId } = req.params;
+
+    // Get the specific lead - admin can access any lead
+    const query = `SELECT * FROM leads WHERE lead_id = ?`;
+    
+    const [leads] = await mysqlPool.query(query, [leadId]) as [any[], any];
+  
+    if (leads.length === 0) {
+      res.status(404).json({ error: 'Lead not found' });
+      return;
+    }
+
+    const lead = leads[0];
+
+    // Fetch all sales reps first (there are only ~10 max) for enrichment
+    const [salesReps] = await mysqlPool.query(
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE is_active = 1",
+      []
+    ) as [any[], any];
+
+    // Create a map of sales rep UIDs to detailed info, and fetch emails from Firebase
+    const salesRepMap = new Map();
+    for (const rep of salesReps) {
+      try {
+        const userRecord = await firebaseAdmin.auth().getUser(rep.uid);
+        salesRepMap.set(rep.uid, {
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: userRecord.email || null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      } catch (error) {
+        // If Firebase lookup fails, still include the rep without email
+        salesRepMap.set(rep.uid, {
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      }
+    }
+
+    // Replace sales_rep UID with detailed sales rep object or null
+    const enrichedLead = {
+      ...lead,
+      sales_rep: (lead.sales_rep && lead.sales_rep !== 'unassigned') ? (salesRepMap.get(lead.sales_rep) || null) : null
+    };
+
+    res.status(200).json({
+      message: 'Lead retrieved successfully',
+      data: enrichedLead
+    });
+  } catch (error) {
+    console.error('Error fetching lead:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -161,13 +636,18 @@ adminRouter.get('/leads/:leadId/touch-points', async (req: AuthenticatedRequest,
       return;
     }
 
-    // Get touch points for this lead with sales rep names
+    // Get touch points for this lead with names from appropriate tables based on commenter_type
     const [touchPoints] = await mysqlPool.query(
       `SELECT 
         tp.*,
-        sr.name as contact_name
+        CASE 
+          WHEN tp.commenter_type = 'admin' THEN COALESCE(a.name, tp.uid)
+          ELSE COALESCE(sr.name, tp.uid)
+        END as contact_name,
+        tp.commenter_type
        FROM touch_points tp
        LEFT JOIN sales_rep sr ON tp.uid = sr.uid AND sr.is_active = 1
+       LEFT JOIN admin a ON tp.uid = a.uid AND a.is_active = 1
        WHERE tp.lead_id = ? AND tp.is_active = 1 
        ORDER BY tp.created_at DESC`,
       [leadId]
@@ -367,15 +847,23 @@ adminRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequest
     }
 
     const { leadId } = req.params;
-    const { uid, contact_method, description } = req.body;
+    const { contact_method, description } = req.body;
     const systemNote = "Automated Message";
+    
+    // Get uid from authenticated user
+    const uid = req.userRecord?.uid;
+
+    if (!uid) {
+      res.status(401).json({ error: 'User not authenticated' });
+      return;
+    }
 
     if (!leadId) {
       res.status(400).json({ error: 'Lead ID is required' });
       return;
     }
 
-    // Check if lead exists and belongs to this sales rep
+    // Check if lead exists (admin can access any lead)
     const [leadRows] = await mysqlPool.query(
       "SELECT lead_id FROM leads WHERE lead_id = ?",
       [leadId]
@@ -391,9 +879,9 @@ adminRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequest
 
     // Insert the new touch point
     await mysqlPool.query(
-      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description, system_note) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [touchId, uid, leadId, contact_method, description, systemNote]
+      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description, system_note, commenter_type) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [touchId, uid, leadId, contact_method, description, systemNote, 'admin']
     );
 
     res.status(201).json({

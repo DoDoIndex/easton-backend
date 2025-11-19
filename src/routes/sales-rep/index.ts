@@ -691,13 +691,18 @@ salesRepRouter.get('/leads/:leadId/touch-points', async (req: AuthenticatedReque
       return;
     }
 
-    // Get touch points for this lead with sales rep names
+    // Get touch points for this lead with names from appropriate tables based on commenter_type
     const [touchPoints] = await mysqlPool.query(
       `SELECT 
         tp.*,
-        COALESCE(sr.name, tp.uid) as contact_name
+        CASE 
+          WHEN tp.commenter_type = 'admin' THEN COALESCE(a.name, tp.uid)
+          ELSE COALESCE(sr.name, tp.uid)
+        END as contact_name,
+        tp.commenter_type
        FROM touch_points tp
        LEFT JOIN sales_rep sr ON tp.uid = sr.uid AND sr.is_active = 1
+       LEFT JOIN admin a ON tp.uid = a.uid AND a.is_active = 1
        WHERE tp.lead_id = ? AND tp.is_active = 1 
        ORDER BY tp.created_at DESC`,
       [leadId]
@@ -795,9 +800,9 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
 
     // Insert the new touch point
     await mysqlPool.query(
-      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description, system_note) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [touchId, uid, leadId, contact_method, description, systemNote]
+      `INSERT INTO touch_points (touch_id, uid, lead_id, contact_method, description, system_note, commenter_type) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [touchId, uid, leadId, contact_method, description, systemNote, 'sales_rep']
     );
 
     res.status(201).json({
