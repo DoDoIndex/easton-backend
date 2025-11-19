@@ -84,7 +84,7 @@ adminRouter.post('/sales-reps', async (req: AuthenticatedRequest, res: express.R
       return;
     }
 
-    const { name, email, password, phone, calendar_url, commission_rate } = req.body;
+    const { name, email, password, phone, calendar_url, commission_rate, grant_key } = req.body;
     
     // Validate required fields
     if (!name) {
@@ -136,8 +136,8 @@ adminRouter.post('/sales-reps', async (req: AuthenticatedRequest, res: express.R
     try {
       // Insert sales rep into database
       await mysqlPool.query(
-        "INSERT INTO sales_rep (uid, name, phone, calendar_url, commission_rate, is_active) VALUES (?, ?, ?, ?, ?, 1)",
-        [firebaseUid, name, phone, calendar_url || null, commission_rate]
+        "INSERT INTO sales_rep (uid, name, phone, calendar_url, commission_rate, grant_key, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)",
+        [firebaseUid, name, phone, calendar_url || null, commission_rate, grant_key || null]
       ) as [any, any];
 
       // Get the created sales rep
@@ -182,9 +182,9 @@ adminRouter.get('/sales-reps', async (req: AuthenticatedRequest, res: express.Re
       return;
     }
 
-    // Fetch all sales reps from database
+    // Fetch all sales reps from database (including inactive ones)
     const [salesReps] = await mysqlPool.query(
-      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE is_active = 1 ORDER BY name ASC",
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep ORDER BY name ASC",
       []
     ) as [any[], any];
 
@@ -1028,13 +1028,21 @@ adminRouter.get('/leads/:leadId/touch-points', async (req: AuthenticatedRequest,
       `SELECT 
         tp.*,
         CASE 
-          WHEN tp.commenter_type = 'admin' THEN COALESCE(a.name, tp.uid)
-          ELSE COALESCE(sr.name, tp.uid)
+          WHEN tp.commenter_type = 'admin' THEN 
+            CASE 
+              WHEN a.is_active = 0 THEN CONCAT(COALESCE(a.name, tp.uid), ' (Inactive)')
+              ELSE COALESCE(a.name, tp.uid)
+            END
+          ELSE 
+            CASE 
+              WHEN sr.is_active = 0 THEN CONCAT(COALESCE(sr.name, tp.uid), ' (Inactive)')
+              ELSE COALESCE(sr.name, tp.uid)
+            END
         END as contact_name,
         tp.commenter_type
        FROM touch_points tp
-       LEFT JOIN sales_rep sr ON tp.uid = sr.uid AND sr.is_active = 1
-       LEFT JOIN admin a ON tp.uid = a.uid AND a.is_active = 1
+       LEFT JOIN sales_rep sr ON tp.uid = sr.uid
+       LEFT JOIN admin a ON tp.uid = a.uid
        WHERE tp.lead_id = ? AND tp.is_active = 1 
        ORDER BY tp.created_at DESC`,
       [leadId]
@@ -1234,8 +1242,8 @@ adminRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequest
     }
 
     const { leadId } = req.params;
-    const { contact_method, description } = req.body;
-    const systemNote = "Automated Message";
+    const { contact_method, description, system_note } = req.body;
+    const systemNote = system_note || "Automated Message";
     
     // Get uid from authenticated user
     const uid = req.userRecord?.uid;

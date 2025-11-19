@@ -739,13 +739,21 @@ salesRepRouter.get('/leads/:leadId/touch-points', async (req: AuthenticatedReque
       `SELECT 
         tp.*,
         CASE 
-          WHEN tp.commenter_type = 'admin' THEN COALESCE(a.name, tp.uid)
-          ELSE COALESCE(sr.name, tp.uid)
+          WHEN tp.commenter_type = 'admin' THEN 
+            CASE 
+              WHEN a.is_active = 0 THEN CONCAT(COALESCE(a.name, tp.uid), ' (Inactive)')
+              ELSE COALESCE(a.name, tp.uid)
+            END
+          ELSE 
+            CASE 
+              WHEN sr.is_active = 0 THEN CONCAT(COALESCE(sr.name, tp.uid), ' (Inactive)')
+              ELSE COALESCE(sr.name, tp.uid)
+            END
         END as contact_name,
         tp.commenter_type
        FROM touch_points tp
-       LEFT JOIN sales_rep sr ON tp.uid = sr.uid AND sr.is_active = 1
-       LEFT JOIN admin a ON tp.uid = a.uid AND a.is_active = 1
+       LEFT JOIN sales_rep sr ON tp.uid = sr.uid
+       LEFT JOIN admin a ON tp.uid = a.uid
        WHERE tp.lead_id = ? AND tp.is_active = 1 
        ORDER BY tp.created_at DESC`,
       [leadId]
