@@ -298,7 +298,7 @@ adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Respons
     // Replace sales_rep UID with detailed sales rep object
     const enrichedLeads = leads.map(lead => ({
       ...lead,
-      sales_rep: lead.sales_rep ? (salesRepMap.get(lead.sales_rep) || null) : null
+      sales_rep: (lead.sales_rep && lead.sales_rep !== 'unassigned') ? (salesRepMap.get(lead.sales_rep) || null) : null
     }));
 
     res.status(200).json({
@@ -600,7 +600,7 @@ adminRouter.get('/leads/:leadId', async (req: AuthenticatedRequest, res: express
     // Replace sales_rep UID with detailed sales rep object or null
     const enrichedLead = {
       ...lead,
-      sales_rep: lead.sales_rep ? (salesRepMap.get(lead.sales_rep) || null) : null
+      sales_rep: (lead.sales_rep && lead.sales_rep !== 'unassigned') ? (salesRepMap.get(lead.sales_rep) || null) : null
     };
 
     res.status(200).json({
