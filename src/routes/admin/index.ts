@@ -71,6 +71,10 @@ adminRouter.get('/info', async (req: AuthenticatedRequest, res: express.Response
   }
 });
 
+// ============================================================================
+// SALES REP MANAGEMENT ROUTES
+// ============================================================================
+
 // GET /admin/sales-reps - Get all sales reps with detailed info including emails from Firebase
 adminRouter.get('/sales-reps', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
@@ -182,90 +186,6 @@ adminRouter.get('/sales-reps/:uid', async (req: AuthenticatedRequest, res: expre
     });
   } catch (error) {
     console.error('Error fetching sales rep:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// PUT /admin/phone - Update sales rep phone number (admin can update any sales rep)
-adminRouter.put('/phone', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
-  try {
-    // Check if user has admin role
-    if (!req.userRole?.includes('admin')) {
-      res.status(403).json({ error: 'Admin access required' });
-      return;
-    }
-
-    const { uid, phone } = req.body;
-    
-    if (!uid) {
-      res.status(400).json({ error: 'Sales rep UID is required' });
-      return;
-    }
-
-    if (!phone) {
-      res.status(400).json({ error: 'Phone number is required' });
-      return;
-    }
-
-    // Update the phone number for the specified sales rep
-    const [result] = await mysqlPool.query(
-      "UPDATE sales_rep SET phone = ? WHERE uid = ? AND is_active = 1",
-      [phone, uid]
-    ) as [any, any];
-
-    if (result.affectedRows === 0) {
-      res.status(404).json({ error: 'Sales rep not found' });
-      return;
-    }
-
-    res.status(200).json({ 
-      message: 'Phone number updated successfully',
-      data: { uid, phone }
-    });
-  } catch (error) {
-    console.error('Error updating sales rep phone:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// PUT /admin/calendar-url - Update sales rep calendar URL (admin can update any sales rep)
-adminRouter.put('/calendar-url', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
-  try {
-    // Check if user has admin role
-    if (!req.userRole?.includes('admin')) {
-      res.status(403).json({ error: 'Admin access required' });
-      return;
-    }
-
-    const { uid, calendar_url } = req.body;
-    
-    if (!uid) {
-      res.status(400).json({ error: 'Sales rep UID is required' });
-      return;
-    }
-
-    if (!calendar_url) {
-      res.status(400).json({ error: 'Calendar URL is required' });
-      return;
-    }
-
-    // Update the calendar URL for the specified sales rep
-    const [result] = await mysqlPool.query(
-      "UPDATE sales_rep SET calendar_url = ? WHERE uid = ? AND is_active = 1",
-      [calendar_url, uid]
-    ) as [any, any];
-
-    if (result.affectedRows === 0) {
-      res.status(404).json({ error: 'Sales rep not found' });
-      return;
-    }
-
-    res.status(200).json({ 
-      message: 'Calendar URL updated successfully',
-      data: { uid, calendar_url }
-    });
-  } catch (error) {
-    console.error('Error updating sales rep calendar URL:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -448,6 +368,94 @@ adminRouter.put('/sales-reps/:uid/password', async (req: AuthenticatedRequest, r
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// PUT /admin/phone - Update sales rep phone number (admin can update any sales rep)
+adminRouter.put('/phone', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid, phone } = req.body;
+    
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    if (!phone) {
+      res.status(400).json({ error: 'Phone number is required' });
+      return;
+    }
+
+    // Update the phone number for the specified sales rep
+    const [result] = await mysqlPool.query(
+      "UPDATE sales_rep SET phone = ? WHERE uid = ? AND is_active = 1",
+      [phone, uid]
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    res.status(200).json({ 
+      message: 'Phone number updated successfully',
+      data: { uid, phone }
+    });
+  } catch (error) {
+    console.error('Error updating sales rep phone:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /admin/calendar-url - Update sales rep calendar URL (admin can update any sales rep)
+adminRouter.put('/calendar-url', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid, calendar_url } = req.body;
+    
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    if (!calendar_url) {
+      res.status(400).json({ error: 'Calendar URL is required' });
+      return;
+    }
+
+    // Update the calendar URL for the specified sales rep
+    const [result] = await mysqlPool.query(
+      "UPDATE sales_rep SET calendar_url = ? WHERE uid = ? AND is_active = 1",
+      [calendar_url, uid]
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    res.status(200).json({ 
+      message: 'Calendar URL updated successfully',
+      data: { uid, calendar_url }
+    });
+  } catch (error) {
+    console.error('Error updating sales rep calendar URL:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================================================
+// LEAD MANAGEMENT ROUTES  
+// ============================================================================
 
 // GET /admin/leads - Get all leads with detailed touch point information (admin access to all)
 adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
