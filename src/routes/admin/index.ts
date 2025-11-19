@@ -75,6 +75,104 @@ adminRouter.get('/info', async (req: AuthenticatedRequest, res: express.Response
 // SALES REP MANAGEMENT ROUTES
 // ============================================================================
 
+// POST /admin/sales-reps - Create new sales rep (admin only)
+adminRouter.post('/sales-reps', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { name, email, password, phone, calendar_url, commission_rate } = req.body;
+    
+    // Validate required fields
+    if (!name) {
+      res.status(400).json({ error: 'Name is required' });
+      return;
+    }
+    if (!email) {
+      res.status(400).json({ error: 'Email is required' });
+      return;
+    }
+    if (!password) {
+      res.status(400).json({ error: 'Password is required' });
+      return;
+    }
+    if (password.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      return;
+    }
+    if (!phone) {
+      res.status(400).json({ error: 'Phone is required' });
+      return;
+    }
+    if (commission_rate === undefined || commission_rate === null) {
+      res.status(400).json({ error: 'Commission rate is required' });
+      return;
+    }
+
+    let firebaseUid = null;
+
+    try {
+      // Create user in Firebase Auth
+      const userRecord = await firebaseAdmin.auth().createUser({
+        email: email,
+        password: password,
+        displayName: name
+      });
+      
+      firebaseUid = userRecord.uid;
+    } catch (firebaseError: any) {
+      console.error('Error creating Firebase user:', firebaseError);
+      if (firebaseError.code === 'auth/email-already-exists') {
+        res.status(400).json({ error: 'Email already exists' });
+      } else {
+        res.status(400).json({ error: 'Failed to create user in Firebase' });
+      }
+      return;
+    }
+
+    try {
+      // Insert sales rep into database
+      await mysqlPool.query(
+        "INSERT INTO sales_rep (uid, name, phone, calendar_url, commission_rate, is_active) VALUES (?, ?, ?, ?, ?, 1)",
+        [firebaseUid, name, phone, calendar_url || null, commission_rate]
+      ) as [any, any];
+
+      // Get the created sales rep
+      const [createdSalesRep] = await mysqlPool.query(
+        "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE uid = ?",
+        [firebaseUid]
+      ) as [any[], any];
+
+      const responseData = {
+        ...createdSalesRep[0],
+        email: email
+      };
+
+      res.status(201).json({ 
+        message: 'Sales rep created successfully',
+        data: responseData
+      });
+    } catch (dbError) {
+      console.error('Error creating sales rep in database:', dbError);
+      
+      // If database insert fails, clean up Firebase user
+      try {
+        await firebaseAdmin.auth().deleteUser(firebaseUid);
+      } catch (cleanupError) {
+        console.error('Error cleaning up Firebase user after database failure:', cleanupError);
+      }
+      
+      res.status(500).json({ error: 'Failed to create sales rep in database' });
+    }
+  } catch (error) {
+    console.error('Error creating sales rep:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /admin/sales-reps - Get all sales reps with detailed info including emails from Firebase
 adminRouter.get('/sales-reps', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
