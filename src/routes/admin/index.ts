@@ -126,6 +126,66 @@ adminRouter.get('/sales-reps', async (req: AuthenticatedRequest, res: express.Re
   }
 });
 
+// GET /admin/sales-reps/:uid - Get specific sales rep by ID with detailed info including email from Firebase
+adminRouter.get('/sales-reps/:uid', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid } = req.params;
+
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    // Fetch specific sales rep from database
+    const [salesReps] = await mysqlPool.query(
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE uid = ?",
+      [uid]
+    ) as [any[], any];
+
+    if (salesReps.length === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    const rep = salesReps[0];
+
+    // Enrich with email from Firebase
+    let email = null;
+    try {
+      const userRecord = await firebaseAdmin.auth().getUser(rep.uid);
+      email = userRecord.email || null;
+    } catch (error) {
+      console.error('Error fetching email from Firebase:', error);
+      // Continue without email if Firebase fails
+    }
+
+    const enrichedSalesRep = {
+      uid: rep.uid,
+      name: rep.name,
+      grant_key: rep.grant_key,
+      commission_rate: rep.commission_rate,
+      phone: rep.phone,
+      email: email,
+      calendar_url: rep.calendar_url,
+      is_active: rep.is_active
+    };
+
+    res.status(200).json({ 
+      message: 'Sales rep retrieved successfully',
+      data: enrichedSalesRep
+    });
+  } catch (error) {
+    console.error('Error fetching sales rep:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // PUT /admin/phone - Update sales rep phone number (admin can update any sales rep)
 adminRouter.put('/phone', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
@@ -206,6 +266,185 @@ adminRouter.put('/calendar-url', async (req: AuthenticatedRequest, res: express.
     });
   } catch (error) {
     console.error('Error updating sales rep calendar URL:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /admin/sales-reps/:uid - Update sales rep by ID (admin can update any sales rep)
+adminRouter.put('/sales-reps/:uid', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid } = req.params;
+    const { name, phone, calendar_url, commission_rate, grant_key, email, is_active } = req.body;
+    
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    // Check if sales rep exists
+    const [existingSalesRep] = await mysqlPool.query(
+      "SELECT * FROM sales_rep WHERE uid = ?",
+      [uid]
+    ) as [any[], any];
+
+    if (existingSalesRep.length === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    const currentSalesRep = existingSalesRep[0];
+
+    // Update Firebase email if provided and different
+    if (email && email !== currentSalesRep.email) {
+      try {
+        await firebaseAdmin.auth().updateUser(uid, {
+          email: email
+        });
+      } catch (firebaseError) {
+        console.error('Error updating Firebase email:', firebaseError);
+        res.status(400).json({ error: 'Failed to update email in Firebase' });
+        return;
+      }
+    }
+
+    // Build update query dynamically based on provided fields
+    const updateFields = [];
+    const updateValues = [];
+
+    if (name !== undefined) {
+      updateFields.push('name = ?');
+      updateValues.push(name);
+    }
+    if (phone !== undefined) {
+      updateFields.push('phone = ?');
+      updateValues.push(phone);
+    }
+    if (calendar_url !== undefined) {
+      updateFields.push('calendar_url = ?');
+      updateValues.push(calendar_url);
+    }
+    if (commission_rate !== undefined) {
+      updateFields.push('commission_rate = ?');
+      updateValues.push(commission_rate);
+    }
+    if (grant_key !== undefined) {
+      updateFields.push('grant_key = ?');
+      updateValues.push(grant_key);
+    }
+    if (is_active !== undefined) {
+      updateFields.push('is_active = ?');
+      updateValues.push(is_active);
+    }
+
+    if (updateFields.length === 0) {
+      res.status(400).json({ error: 'No fields provided to update' });
+      return;
+    }
+
+    // Add UID to the end of values array
+    updateValues.push(uid);
+
+    // Update the sales rep in database
+    const [result] = await mysqlPool.query(
+      `UPDATE sales_rep SET ${updateFields.join(', ')} WHERE uid = ?`,
+      updateValues
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Sales rep not found or no changes made' });
+      return;
+    }
+
+    // Get updated sales rep with email from Firebase
+    const [updatedSalesRep] = await mysqlPool.query(
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE uid = ?",
+      [uid]
+    ) as [any[], any];
+
+    let updatedEmail = null;
+    try {
+      const userRecord = await firebaseAdmin.auth().getUser(uid);
+      updatedEmail = userRecord.email || null;
+    } catch (firebaseError) {
+      console.error('Error fetching updated email from Firebase:', firebaseError);
+    }
+
+    const responseData = {
+      ...updatedSalesRep[0],
+      email: updatedEmail
+    };
+
+    res.status(200).json({ 
+      message: 'Sales rep updated successfully',
+      data: responseData
+    });
+  } catch (error) {
+    console.error('Error updating sales rep:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /admin/sales-reps/:uid/password - Change sales rep password (admin only)
+adminRouter.put('/sales-reps/:uid/password', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid } = req.params;
+    const { password } = req.body;
+    
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    if (!password) {
+      res.status(400).json({ error: 'Password is required' });
+      return;
+    }
+
+    if (password.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      return;
+    }
+
+    // Check if sales rep exists in database
+    const [existingSalesRep] = await mysqlPool.query(
+      "SELECT uid FROM sales_rep WHERE uid = ?",
+      [uid]
+    ) as [any[], any];
+
+    if (existingSalesRep.length === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    // Update password in Firebase
+    try {
+      await firebaseAdmin.auth().updateUser(uid, {
+        password: password
+      });
+    } catch (firebaseError) {
+      console.error('Error updating Firebase password:', firebaseError);
+      res.status(400).json({ error: 'Failed to update password in Firebase' });
+      return;
+    }
+
+    res.status(200).json({ 
+      message: 'Password updated successfully',
+      data: { uid }
+    });
+  } catch (error) {
+    console.error('Error updating sales rep password:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
