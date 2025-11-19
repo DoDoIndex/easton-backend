@@ -390,6 +390,65 @@ adminRouter.put('/sales-reps/:uid', async (req: AuthenticatedRequest, res: expre
   }
 });
 
+// PUT /admin/sales-reps/:uid/password - Change sales rep password (admin only)
+adminRouter.put('/sales-reps/:uid/password', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
+  try {
+    // Check if user has admin role
+    if (!req.userRole?.includes('admin')) {
+      res.status(403).json({ error: 'Admin access required' });
+      return;
+    }
+
+    const { uid } = req.params;
+    const { password } = req.body;
+    
+    if (!uid) {
+      res.status(400).json({ error: 'Sales rep UID is required' });
+      return;
+    }
+
+    if (!password) {
+      res.status(400).json({ error: 'Password is required' });
+      return;
+    }
+
+    if (password.length < 6) {
+      res.status(400).json({ error: 'Password must be at least 6 characters long' });
+      return;
+    }
+
+    // Check if sales rep exists in database
+    const [existingSalesRep] = await mysqlPool.query(
+      "SELECT uid FROM sales_rep WHERE uid = ?",
+      [uid]
+    ) as [any[], any];
+
+    if (existingSalesRep.length === 0) {
+      res.status(404).json({ error: 'Sales rep not found' });
+      return;
+    }
+
+    // Update password in Firebase
+    try {
+      await firebaseAdmin.auth().updateUser(uid, {
+        password: password
+      });
+    } catch (firebaseError) {
+      console.error('Error updating Firebase password:', firebaseError);
+      res.status(400).json({ error: 'Failed to update password in Firebase' });
+      return;
+    }
+
+    res.status(200).json({ 
+      message: 'Password updated successfully',
+      data: { uid }
+    });
+  } catch (error) {
+    console.error('Error updating sales rep password:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /admin/leads - Get all leads with detailed touch point information (admin access to all)
 adminRouter.get('/leads', async (req: AuthenticatedRequest, res: express.Response): Promise<void> => {
   try {
