@@ -2,6 +2,7 @@ import express from 'express';
 import mysqlPool from '../../services/_mysqlService';
 import jobtreadRouter from './jobtread';
 import { jobtread } from '../../utils';
+import firebaseAdmin from '../../services/_fiebaseService';
 
 interface AuthenticatedRequest extends express.Request {
   userRecord?: any;
@@ -237,6 +238,42 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
       [uid]
     ) as [any[], any];
 
+    // Fetch all sales reps first (there are only ~10 max) for enrichment
+    const [salesReps] = await mysqlPool.query(
+      "SELECT uid, name, grant_key, commission_rate, phone, calendar_url, is_active FROM sales_rep WHERE is_active = 1",
+      []
+    ) as [any[], any];
+
+    // Create a map of sales rep UIDs to detailed info, and fetch emails from Firebase
+    const salesRepMap = new Map();
+    for (const rep of salesReps) {
+      try {
+        const userRecord = await firebaseAdmin.auth().getUser(rep.uid);
+        salesRepMap.set(rep.uid, {
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: userRecord.email || null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      } catch (error) {
+        // If Firebase lookup fails, still include the rep without email
+        salesRepMap.set(rep.uid, {
+          uid: rep.uid,
+          name: rep.name,
+          grant_key: rep.grant_key,
+          commission_rate: rep.commission_rate,
+          phone: rep.phone,
+          email: null,
+          calendar_url: rep.calendar_url,
+          is_active: rep.is_active
+        });
+      }
+    }
+
     // Add empty jobs array and integration_name to each customer
     customers.forEach(customer => {
       customer.integration_name = null;
@@ -436,9 +473,15 @@ salesRepRouter.get('/jobs', async (req: AuthenticatedRequest, res: express.Respo
       }
     }
     
+    // Replace sales_rep UID with detailed sales rep object for each customer
+    const enrichedCustomers = customers.map(customer => ({
+      ...customer,
+      sales_rep: (customer.sales_rep && customer.sales_rep !== 'unassigned') ? (salesRepMap.get(customer.sales_rep) || null) : null
+    }));
+    
     res.status(200).json({
       message: 'Customers retrieved successfully',
-      data: customers
+      data: enrichedCustomers
     });
   } catch (error) {
     console.error('Error fetching customers:', error);
