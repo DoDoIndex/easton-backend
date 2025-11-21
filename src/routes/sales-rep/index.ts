@@ -774,7 +774,7 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
   try {
     const uid = req.userRecord?.uid;
     const { leadId } = req.params;
-    const { contact_method, description, status, follow_up_date } = req.body;
+    const { contact_method, description, status, follow_up_date, system_note } = req.body;
     
     if (!uid) {
       res.status(401).json({ error: 'User not authenticated' });
@@ -806,7 +806,7 @@ salesRepRouter.post('/leads/:leadId/touch-points', async (req: AuthenticatedRequ
     }
 
     const currentLead = leadRows[0];
-    let systemNote = '';
+    let systemNote = system_note || 'Automated Message';
     let statusUpdated = false;
     let finalFollowUpDate = null;
 

@@ -358,6 +358,31 @@ adminRouter.put('/sales-reps/:uid', async (req: AuthenticatedRequest, res: expre
     if (is_active !== undefined) {
       updateFields.push('is_active = ?');
       updateValues.push(is_active);
+      
+      // Check if the sales rep being updated is also an admin - don't disable admins in Firebase
+      const [adminCheck] = await mysqlPool.query(
+        "SELECT uid FROM admin WHERE uid = ?",
+        [uid]
+      ) as [any[], any];
+      
+      const isUserAlsoAdmin = adminCheck.length > 0;
+      
+      // If trying to disable an admin, stop the operation completely
+      if (isUserAlsoAdmin && !is_active) {
+        res.status(400).json({ error: 'Cannot disable admin users' });
+        return;
+      }
+      
+      // Enable/disable user in Firebase based on is_active status
+      try {
+        await firebaseAdmin.auth().updateUser(uid, {
+          disabled: !is_active  // Firebase uses 'disabled' (opposite of is_active)
+        });
+      } catch (firebaseError) {
+        console.error('Error updating Firebase user status:', firebaseError);
+        res.status(400).json({ error: 'Failed to update user status in Firebase' });
+        return;
+      }
     }
 
     if (updateFields.length === 0) {
@@ -490,7 +515,7 @@ adminRouter.put('/phone', async (req: AuthenticatedRequest, res: express.Respons
 
     // Update the phone number for the specified sales rep
     const [result] = await mysqlPool.query(
-      "UPDATE sales_rep SET phone = ? WHERE uid = ? AND is_active = 1",
+      "UPDATE sales_rep SET phone = ? WHERE uid = ?",
       [phone, uid]
     ) as [any, any];
 
@@ -532,7 +557,7 @@ adminRouter.put('/calendar-url', async (req: AuthenticatedRequest, res: express.
 
     // Update the calendar URL for the specified sales rep
     const [result] = await mysqlPool.query(
-      "UPDATE sales_rep SET calendar_url = ? WHERE uid = ? AND is_active = 1",
+      "UPDATE sales_rep SET calendar_url = ? WHERE uid = ?",
       [calendar_url, uid]
     ) as [any, any];
 
