@@ -281,6 +281,7 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
         customer,
         lead_id,
         lead_data: { name, email, phone },
+        job_id: jobId,
         integration: {
           integration_id: customer.id,
           integration_name: 'JobTread'
