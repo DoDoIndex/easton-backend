@@ -1215,7 +1215,28 @@ adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Res
     }
 
     const { id } = req.params;
-    const { name, email, phone, project_interest, budget, click_source, website_source, ad_source, status, sales_rep, finance_need, channel, notes, commission_rate } = req.body;
+    
+    // Extract all possible fields from request body
+    const {
+      name,
+      email,
+      phone,
+      address,
+      city,
+      state,
+      zipcode,
+      project_interest,
+      budget,
+      click_source,
+      website_source,
+      ad_source,
+      status,
+      sales_rep,
+      finance_need,
+      channel,
+      notes,
+      commission_rate
+    } = req.body;
 
     // Check if lead exists
     const [existingLead] = await mysqlPool.query(
@@ -1228,19 +1249,101 @@ adminRouter.put('/leads/:id', async (req: AuthenticatedRequest, res: express.Res
       return;
     }
 
+    // Build dynamic update query with only the provided fields
+    const updateFields: string[] = [];
+    const updateValues: any[] = [];
+
+    if (name !== undefined) {
+      updateFields.push('name = ?');
+      updateValues.push(name);
+    }
+    if (email !== undefined) {
+      updateFields.push('email = ?');
+      updateValues.push(email);
+    }
+    if (phone !== undefined) {
+      updateFields.push('phone = ?');
+      updateValues.push(phone);
+    }
+    if (address !== undefined) {
+      updateFields.push('address = ?');
+      updateValues.push(address);
+    }
+    if (city !== undefined) {
+      updateFields.push('city = ?');
+      updateValues.push(city);
+    }
+    if (state !== undefined) {
+      updateFields.push('state = ?');
+      updateValues.push(state);
+    }
+    if (zipcode !== undefined) {
+      updateFields.push('zipcode = ?');
+      updateValues.push(zipcode);
+    }
+    if (project_interest !== undefined) {
+      updateFields.push('project_interest = ?');
+      updateValues.push(project_interest);
+    }
+    if (budget !== undefined) {
+      updateFields.push('budget = ?');
+      updateValues.push(budget);
+    }
+    if (click_source !== undefined) {
+      updateFields.push('click_source = ?');
+      updateValues.push(click_source);
+    }
+    if (website_source !== undefined) {
+      updateFields.push('website_source = ?');
+      updateValues.push(website_source);
+    }
+    if (ad_source !== undefined) {
+      updateFields.push('ad_source = ?');
+      updateValues.push(ad_source);
+    }
+    if (status !== undefined) {
+      updateFields.push('status = ?');
+      updateValues.push(status);
+    }
+    if (sales_rep !== undefined) {
+      updateFields.push('sales_rep = ?');
+      updateValues.push(sales_rep);
+    }
+    if (finance_need !== undefined) {
+      updateFields.push('finance_need = ?');
+      updateValues.push(finance_need);
+    }
+    if (channel !== undefined) {
+      updateFields.push('channel = ?');
+      updateValues.push(channel);
+    }
+    if (notes !== undefined) {
+      updateFields.push('notes = ?');
+      updateValues.push(notes);
+    }
+    if (commission_rate !== undefined) {
+      updateFields.push('commission_rate = ?');
+      updateValues.push(commission_rate);
+    }
+
+    if (updateFields.length === 0) {
+      res.status(400).json({ error: 'No valid fields to update' });
+      return;
+    }
+
+    // Add lead_id to update values
+    updateValues.push(id);
+
     // Update the lead
-    await mysqlPool.query(
-      `UPDATE leads SET 
-        name = ?, email = ?, phone = ?, project_interest = ?, budget = ?, 
-        click_source = ?, website_source = ?, ad_source = ?, status = ?, 
-        sales_rep = ?, finance_need = ?, channel = ?, notes = ?, commission_rate = ?
-       WHERE lead_id = ?`,
-      [name || existingLead[0].name, email || existingLead[0].email, phone || existingLead[0].phone,
-       project_interest || existingLead[0].project_interest, budget || existingLead[0].budget,
-       click_source || existingLead[0].click_source, website_source || existingLead[0].website_source,
-       ad_source || existingLead[0].ad_source, status || existingLead[0].status,
-       sales_rep || existingLead[0].sales_rep, finance_need || existingLead[0].finance_need, channel || existingLead[0].channel, notes || existingLead[0].notes, commission_rate || existingLead[0].commission_rate, id]
-    );
+    const [result] = await mysqlPool.query(
+      `UPDATE leads SET ${updateFields.join(', ')} WHERE lead_id = ?`,
+      updateValues
+    ) as [any, any];
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ error: 'Lead not found or no changes made' });
+      return;
+    }
 
     // Get updated lead
     const [updatedLead] = await mysqlPool.query(
