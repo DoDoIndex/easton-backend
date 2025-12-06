@@ -20,7 +20,6 @@ const ORGANIZATION_ID = process.env.JOBTREAD_ORGANIZATION_ID;
   [5] Create one comment per touch point
   [6] Add finance need, channel, budget, and project interest as a message to the customer
   [7] Create a job for the customer
-  [8] Assign Sales Process Checklist to the job
 */
 
 // POST /sales-rep/jobtread/customer - Create customer from lead data
@@ -273,24 +272,6 @@ jobtreadRouter.post('/customer', async (req: AuthenticatedRequest, res: express.
         jobId = jobResponse?.createJob?.createdJob?.id;
       } catch (error) {
         console.error('[WARN] Error creating job:', error);
-      }
-    }
-
-    if (jobId) {
-      // [8] Assign Sales Process Checklist to the job
-      try {
-        await jobtread({
-          copyTaskTemplateToTarget: {
-            $: {
-              notify: false,
-              targetId: jobId,
-              targetType: "job",
-              taskTemplateId: "22PEApzGMSk8" // Sales Process Checklist 
-            }
-          }
-        }, grantKey); 
-      } catch (error) {
-        console.error('[WARN] Error assigning Sales Process Checklist to job:', error);
       }
     }
 
