@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ["nodejs_24", "yarn-1_x"]
+
+[phases.install]
+cmds = [
+  "yarn cache clean || true",
+  "yarn install --frozen-lockfile --network-timeout 100000 --check-files"
+]
+
+[phases.build]
+cmds = ["yarn run build"]
+
+[start]
+cmd = "yarn start"
+
