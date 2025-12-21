@@ -197,12 +197,23 @@ eventsRouter.get('/summary', async (req: express.Request, res: express.Response)
       queryParams
     ) as [any[], any];
 
+    // 6. Total leads (count where event_type = 'lead')
+    let leadFilter = dateFilter 
+      ? `${dateFilter} AND event_type = 'lead'`
+      : "WHERE event_type = 'lead'";
+    const [totalLeadsResult] = await mysqlPool.query(
+      `SELECT COUNT(*) as total FROM events ${leadFilter}`,
+      queryParams
+    ) as [any[], any];
+    const totalLeads = totalLeadsResult[0]?.total || 0;
+
     res.status(200).json({
       message: 'Event summary retrieved successfully',
       data: {
         average_events_per_session: Math.round(avgEventsPerSession * 100) / 100,
         total_events: totalEvents,
         total_sessions: totalSessions,
+        total_leads: totalLeads,
         top_options: topOptionsResult,
         top_ctas: topCtasResult
       }
