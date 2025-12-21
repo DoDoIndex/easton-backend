@@ -7,7 +7,7 @@ const eventsRouter = express.Router();
 // POST /events - Create a new event
 eventsRouter.post('/', async (req: express.Request, res: express.Response): Promise<void> => {
   try {
-    const { event_name, event_type, occurred_at, page_path, referrer, ad_source, session_id } = req.body;
+    const { event_name, event_type, occurred_at, page_path, referrer, ad_source, session_id, lead_id } = req.body;
 
     // Validate required fields
     if (!event_name) {
@@ -28,8 +28,8 @@ eventsRouter.post('/', async (req: express.Request, res: express.Response): Prom
 
     // Insert event into database
     await mysqlPool.query(
-      `INSERT INTO events (event_id, event_name, event_type, occurred_at, page_path, referrer, ad_source, session_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO events (event_id, event_name, event_type, occurred_at, page_path, referrer, ad_source, session_id, lead_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event_id,
         event_name,
@@ -38,7 +38,8 @@ eventsRouter.post('/', async (req: express.Request, res: express.Response): Prom
         page_path || null,
         referrer || null,
         ad_source || null,
-        session_id || null
+        session_id || null,
+        lead_id || null
       ]
     ) as [any, any];
 
@@ -49,7 +50,8 @@ eventsRouter.post('/', async (req: express.Request, res: express.Response): Prom
         event_name,
         event_type,
         occurred_at: timestamp,
-        session_id: session_id || null
+        session_id: session_id || null,
+        lead_id: lead_id || null
       }
     });
   } catch (error) {
@@ -89,18 +91,50 @@ eventsRouter.get('/sessions', async (req: express.Request, res: express.Response
             page_path,
             referrer,
             ad_source,
-            session_id
+            session_id,
+            lead_id
            FROM events
            WHERE session_id = ?
            ORDER BY occurred_at ASC`,
           [session.session_id]
         ) as [any[], any];
 
+        // Get unique lead_ids from events
+        const leadIds = [...new Set(events.map((e: any) => e.lead_id).filter((id: any) => id !== null))];
+        
+        // Fetch lead data for all lead_ids in this session
+        const leadMap = new Map();
+        if (leadIds.length > 0) {
+          const placeholders = leadIds.map(() => '?').join(',');
+          const [leads] = await mysqlPool.query(
+            `SELECT lead_id, name FROM leads WHERE lead_id IN (${placeholders})`,
+            leadIds
+          ) as [any[], any];
+          
+          leads.forEach((lead: any) => {
+            leadMap.set(lead.lead_id, {
+              lead_id: lead.lead_id,
+              name: lead.name
+            });
+          });
+        }
+
+        // Add lead data to events that have lead_id
+        const eventsWithLeads = events.map((event: any) => {
+          if (event.lead_id && leadMap.has(event.lead_id)) {
+            return {
+              ...event,
+              lead: leadMap.get(event.lead_id)
+            };
+          }
+          return event;
+        });
+
         return {
           session_id: session.session_id,
           latest_event_at: session.latest_event_at,
           event_count: session.event_count,
-          events: events
+          events: eventsWithLeads
         };
       })
     );
