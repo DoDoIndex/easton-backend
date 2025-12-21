@@ -58,6 +58,63 @@ eventsRouter.post('/', async (req: express.Request, res: express.Response): Prom
   }
 });
 
+// GET /events/sessions - Get latest sessions with their events
+eventsRouter.get('/sessions', async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    const { limit = 50 } = req.query;
+
+    // Get latest sessions (grouped by session_id, ordered by latest event)
+    const [sessionsResult] = await mysqlPool.query(
+      `SELECT 
+        session_id,
+        MAX(occurred_at) as latest_event_at,
+        COUNT(*) as event_count
+       FROM events
+       WHERE session_id IS NOT NULL
+       GROUP BY session_id
+       ORDER BY latest_event_at DESC
+       LIMIT ?`,
+      [parseInt(limit as string, 10)]
+    ) as [any[], any];
+
+    // For each session, get all its events
+    const sessionsWithEvents = await Promise.all(
+      sessionsResult.map(async (session: any) => {
+        const [events] = await mysqlPool.query(
+          `SELECT 
+            event_id,
+            event_name,
+            event_type,
+            occurred_at,
+            page_path,
+            referrer,
+            ad_source,
+            session_id
+           FROM events
+           WHERE session_id = ?
+           ORDER BY occurred_at ASC`,
+          [session.session_id]
+        ) as [any[], any];
+
+        return {
+          session_id: session.session_id,
+          latest_event_at: session.latest_event_at,
+          event_count: session.event_count,
+          events: events
+        };
+      })
+    );
+
+    res.status(200).json({
+      message: 'Sessions retrieved successfully',
+      data: sessionsWithEvents
+    });
+  } catch (error) {
+    console.error('Error fetching sessions:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /events/summary - Get event analytics summary
 eventsRouter.get('/summary', async (req: express.Request, res: express.Response): Promise<void> => {
   try {
